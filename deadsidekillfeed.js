@@ -66,38 +66,38 @@ const MESSAGE_INDEXES_FILE = 'message-indexes.json'; // Para rastrear os último
 
 // === RATE LIMITS ===
 const RATE_LIMITS = {
-  // Track rate limits for each webhook URL
+  // Rastreia limites de taxa para cada URL de webhook
   webhooks: {},
-  // Global queue for messages to avoid hitting rate limits
+  // Fila global de mensagens para evitar atingir limites de taxa
   queue: [],
-  // Is the queue processor running?
+  // O processador de fila está em execução?
   processing: false
 };
 
-// Load data (properly load from files instead of resetting)
-let seenLines = loadSeenLines(); // Load previously seen lines
-let leaderboards = loadLeaderboards(); // Load leaderboards
-let playerStats = loadPlayerStats(); // Load player stats
-let longshots = loadLongshots(); // Load longshots
-let activeKillstreaks = loadKillstreaks(); // Load killstreaks
-let messageIndexes = loadMessageIndexes(); // Load message indexes
+// Carregar dados (carregar adequadamente dos arquivos ao invés de resetar)
+let seenLines = loadSeenLines(); // Carregar linhas vistas anteriormente
+let leaderboards = loadLeaderboards(); // Carregar tabelas de classificação
+let playerStats = loadPlayerStats(); // Carregar estatísticas de jogadores
+let longshots = loadLongshots(); // Carregar longshots
+let activeKillstreaks = loadKillstreaks(); // Carregar sequências de abates
+let messageIndexes = loadMessageIndexes(); // Carregar índices de mensagem
 
 console.log(`📊 Carregadas ${seenLines.size} linhas vistas anteriormente`);
 console.log(`📊 Carregados ${Object.keys(playerStats.all_time).length} registros de jogadores de todos os tempos`);
 
 console.log(`📊 Carregadas ${Object.keys(activeKillstreaks).length} sequências de abates ativas`);
-setTimeout(logActiveKillstreaks, 3000); // Log active killstreaks after startup
-// === EMBED TEMPLATES ===
+setTimeout(logActiveKillstreaks, 3000); // Registrar sequências de abates ativas após inicialização
+// === MODELOS DE EMBED ===
 
-// These templates will be used for Discord's rich embeds
+// Estes modelos serão usados para os embeds ricos do Discord
 const EMBED_TEMPLATES = {
-  // Kill notification embed
+  // Embed de notificação de abate
   kill: {
-    title: "{emoji} {killer} eliminated {victim}",
-    color: null, // Will be set from server config
-    description: null, // Will be generated from kill phrase
+    title: "{emoji} {killer} eliminou {victim}",
+    color: null, // Será definido a partir da configuração do servidor
+    description: null, // Será gerado a partir da frase de abate
     thumbnail: { url: "{weaponIcon}" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     fields: [
       { name: "Arma", value: "{weapon}", inline: true },
       { name: "Distância", value: "{distance}m", inline: true }
@@ -109,13 +109,13 @@ const EMBED_TEMPLATES = {
     timestamp: new Date().toISOString()
   },
   
-  // Suicide notification embed
+  // Embed de notificação de suicídio
   suicide: {
-    title: "{emoji} {victim} died",
-    color: "#DD3333", // Red color for suicides
-    description: null, // Will be generated from suicide phrase
+    title: "{emoji} {victim} morreu",
+    color: "#DD3333", // Cor vermelha para suicídios
+    description: null, // Será gerado a partir da frase de suicídio
     thumbnail: { url: "https://i.imgur.com/6guD1s3.png" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     footer: { 
       text: "{serverName}", 
       icon_url: "{serverIcon}" 
@@ -123,13 +123,13 @@ const EMBED_TEMPLATES = {
     timestamp: new Date().toISOString()
   },
   
-  // Killstreak notification embed
+  // Embed de notificação de sequência de abates
   killstreak: {
-    title: "⚡ Killstreak Alert!",
-    color: "#FFAA00", // Orange color for killstreaks
-    description: "**{player}** {milestone} ({count} kills)",
+    title: "⚡ Alerta de Sequência de Abates!",
+    color: "#FFAA00", // Cor laranja para sequências de abates
+    description: "**{player}** {milestone} ({count} abates)",
     thumbnail: { url: "https://i.imgur.com/6guD1s3.png" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     footer: { 
       text: "{serverName}", 
       icon_url: "{serverIcon}" 
@@ -137,17 +137,17 @@ const EMBED_TEMPLATES = {
     timestamp: new Date().toISOString()
   },
   
-  // Longshot embed template
+  // Modelo de embed para longshot
   longshot: {
-    title: "🎯 Incredible Long-range Kill!",
-    color: "#AA33AA", // Purple color for longshots
-    description: null, // Will be generated from longshot phrase
+    title: "🎯 Abate de Longa Distância Incrível!",
+    color: "#AA33AA", // Cor roxa para longshots
+    description: null, // Será gerado a partir da frase de longshot
     fields: [
       { name: "Distância", value: "**{distance}m**", inline: true },
       { name: "Arma", value: "{weapon}", inline: true }
     ],
     thumbnail: { url: "https://i.imgur.com/6guD1s3.png" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     footer: { 
       text: "{serverName}", 
       icon_url: "{serverIcon}" 
@@ -163,7 +163,7 @@ async function retryAsync(fn, retries = 3, delayMs = 2000) {
       return await fn();
     } catch (err) {
       if (i < retries - 1) {
-        console.warn(`⚠️ Retry ${i + 1} after error: ${err.message}`);
+        console.warn(`⚠️ Tentativa ${i + 1} após erro: ${err.message}`);
         await new Promise(res => setTimeout(res, delayMs));
       } else {
         throw err;
@@ -174,23 +174,23 @@ async function retryAsync(fn, retries = 3, delayMs = 2000) {
 // === HIGHLIGHTED PLAYERS CONFIG ===
 const HIGHLIGHTED_PLAYERS = {
   "JeffBezzoss": { 
-    color: "#FFD700", // Gold color
-    prefix: "💸ASH WAKE💸 ", // Prefix to add before the name
-    emoji: "💸", // Emoji for additional highlighting
+    color: "#FFD700", // Cor dourada
+    prefix: "💸ASH WAKE💸 ", // Prefixo a adicionar antes do nome
+    emoji: "💸", // Emoji para destaque adicional
     gifUrl: "https://i.imgur.com/UyD4yBI.png", // ASH WAKE GIF
     thumbnailUrl: "https://i.imgur.com/BXUz0Sv.png" // Default thumbnail image
   },
   "YouLackSkill": { 
-    color: "#FFD700", // Gold color
-    prefix: "💸ASH WAKE💸 ", // Prefix to add before the name
-    emoji: "💸", // Emoji for additional highlighting
+    color: "#FFD700", // Cor dourada
+    prefix: "💸ASH WAKE💸 ", // Prefixo a adicionar antes do nome
+    emoji: "💸", // Emoji para destaque adicional
     gifUrl: "https://i.imgur.com/UyD4yBI.png", // ASH WAKE GIF
     thumbnailUrl: "https://i.imgur.com/BXUz0Sv.png" // Default thumbnail image
   },
   "XGrimReaperX252": { 
-    color: "#FFD700", // Gold color
-    prefix: "💸ASH WAKE💸 ", // Prefix to add before the name
-    emoji: "💸", // Emoji for additional highlighting
+    color: "#FFD700", // Cor dourada
+    prefix: "💸ASH WAKE💸 ", // Prefixo a adicionar antes do nome
+    emoji: "💸", // Emoji para destaque adicional
     gifUrl: "https://i.imgur.com/UyD4yBI.png", // ASH WAKE GIF
     thumbnailUrl: "https://i.imgur.com/BXUz0Sv.png" // Default thumbnail image
   },
@@ -245,32 +245,32 @@ const HIGHLIGHTED_PLAYERS = {
   }
 };
 
-// Add this constant with your other file constants
+// Adiciona esta constante com as outras constantes de arquivo
 const HIGHLIGHTED_PLAYERS_FILE = 'highlighted-players.json';
-// Function to check if a player is highlighted
+// Função para verificar se um jogador está em destaque
 function isHighlightedPlayer(playerName) {
   return HIGHLIGHTED_PLAYERS.hasOwnProperty(playerName);
 }
 
-// Function to get player highlight info
+// Função para obter informações de destaque do jogador
 function getPlayerHighlight(playerName) {
   return HIGHLIGHTED_PLAYERS[playerName] || null;
 }
 
-// Function to format player name with highlight if applicable
+// Função para formatar o nome do jogador com destaque se aplicável
 function formatPlayerName(playerName) {
   const highlight = getPlayerHighlight(playerName);
   
   if (highlight) {
-    // Apply the role prefix and emoji highlighting
+    // Aplica o prefixo de função e destaque com emoji
     return `${highlight.prefix}**${playerName}** ${highlight.emoji}`;
   }
   
-  // Regular player just gets bold formatting
+  // Jogador regular recebe apenas formatação em negrito
   return `**${playerName}**`;
 }
 
-// Functions to save and load highlighted players
+// Funções para salvar e carregar jogadores em destaque
 function saveHighlightedPlayers() {
   try {
     fs.writeFileSync(HIGHLIGHTED_PLAYERS_FILE, JSON.stringify(HIGHLIGHTED_PLAYERS));
@@ -282,38 +282,38 @@ function saveHighlightedPlayers() {
 
 function loadHighlightedPlayers() {
   try {
-    // Store a copy of your code-defined players
+    // Armazena uma cópia dos jogadores definidos no código
     const codeDefinedPlayers = JSON.parse(JSON.stringify(HIGHLIGHTED_PLAYERS));
     
-    // Try to load from file
+    // Tenta carregar do arquivo
     const data = fs.readFileSync(HIGHLIGHTED_PLAYERS_FILE);
     const loaded = JSON.parse(data);
     
-    // Clear current config to start fresh
+    // Limpa a configuração atual para começar do zero
     for (const player in HIGHLIGHTED_PLAYERS) {
       delete HIGHLIGHTED_PLAYERS[player];
     }
     
-    // Add all code-defined players back first
+    // Adiciona todos os jogadores definidos no código primeiro
     for (const player in codeDefinedPlayers) {
       HIGHLIGHTED_PLAYERS[player] = codeDefinedPlayers[player];
     }
     
-    // Only update players that exist in our code
+    // Atualiza apenas jogadores que existem no nosso código
     for (const player in loaded) {
       if (codeDefinedPlayers.hasOwnProperty(player)) {
-        // Take file values but ensure required properties exist
+        // Pega valores do arquivo mas garante que propriedades necessárias existam
         HIGHLIGHTED_PLAYERS[player] = loaded[player];
         
-        // Make sure gifUrl is set
+        // Garante que gifUrl está definido
         if (!HIGHLIGHTED_PLAYERS[player].gifUrl) {
-          console.log(`⚠️ Fixing missing gifUrl for ${player}`);
+          console.log(`⚠️ Corrigindo gifUrl ausente para ${player}`);
           HIGHLIGHTED_PLAYERS[player].gifUrl = codeDefinedPlayers[player].gifUrl;
         }
         
-        // Make sure thumbnailUrl is set
+        // Garante que thumbnailUrl está definido
         if (!HIGHLIGHTED_PLAYERS[player].thumbnailUrl) {
-          console.log(`⚠️ Fixing missing thumbnailUrl for ${player}`);
+          console.log(`⚠️ Corrigindo thumbnailUrl ausente para ${player}`);
           HIGHLIGHTED_PLAYERS[player].thumbnailUrl = codeDefinedPlayers[player].thumbnailUrl;
         }
       }
@@ -321,50 +321,50 @@ function loadHighlightedPlayers() {
     
     console.log('✅ Configuração de jogadores em destaque carregada.');
     
-    // Save the fixed configuration back to file
+    // Salva a configuração corrigida de volta no arquivo
     saveHighlightedPlayers();
   } catch (err) {
     console.log('ℹ️ Nenhum arquivo de jogadores em destaque encontrado ou erro ao ler. Usando padrões.');
-    saveHighlightedPlayers(); // Create the file with defaults
+    saveHighlightedPlayers(); // Cria o arquivo com padrões
   }
 }
-// Function to clean up and reset highlighted players to code defaults
+// Função para limpar e resetar jogadores em destaque para os padrões do código
 function resetHighlightedPlayers() {
-  console.log('🧹 Resetting highlighted players to code defaults...');
+  console.log('🧹 Resetando jogadores em destaque para os padrões do código...');
   
   try {
-    // Delete the saved file first
+    // Deleta o arquivo salvo primeiro
     fs.unlinkSync(HIGHLIGHTED_PLAYERS_FILE);
-    console.log('✅ Deleted saved highlighted players file');
+    console.log('✅ Arquivo de jogadores em destaque salvo deletado');
   } catch (err) {
     console.log('ℹ️ Nenhum arquivo para deletar ou erro ao deletar');
   }
   
-  // Run validation to show current state
+  // Executa validação para mostrar estado atual
   validateHighlightedPlayerUrls();
   
-  // Save with current code defaults
+  // Salva com os padrões atuais do código
   saveHighlightedPlayers();
-  console.log('✅ Reset highlighted players completed');
+  console.log('✅ Reset de jogadores em destaque concluído');
 }
-// Add a function to check for thumbnail URLs in the HIGHLIGHTED_PLAYERS object
+// Adiciona uma função para verificar URLs de miniaturas no objeto HIGHLIGHTED_PLAYERS
 function checkHighlightedPlayersThumbnails() {
-  console.log('🔍 Checking highlighted players Thumbnail URLs:');
+  console.log('🔍 Verificando URLs de miniaturas de jogadores em destaque:');
   for (const player in HIGHLIGHTED_PLAYERS) {
     const highlight = HIGHLIGHTED_PLAYERS[player];
     if (highlight.thumbnailUrl) {
-      console.log(`✅ ${player} has Thumbnail URL: ${highlight.thumbnailUrl}`);
+      console.log(`✅ ${player} tem URL de miniatura: ${highlight.thumbnailUrl}`);
     } else {
-      console.log(`⚠️ ${player} is missing Thumbnail URL - will use GIF or weapon icon`);
+      console.log(`⚠️ ${player} está sem URL de miniatura - usará GIF ou ícone de arma`);
     }
   }
 }
 function checkHighlightedPlayersGifs() {
-  console.log('🔍 Checking highlighted players GIF URLs:');
+  console.log('🔍 Verificando URLs de GIF de jogadores em destaque:');
   for (const player in HIGHLIGHTED_PLAYERS) {
     const highlight = HIGHLIGHTED_PLAYERS[player];
     if (highlight.gifUrl) {
-      console.log(`✅ ${player} has GIF URL: ${highlight.gifUrl}`);
+      console.log(`✅ ${player} tem URL de GIF: ${highlight.gifUrl}`);
     } else {
       console.log(`❌ ${player} is missing GIF URL!`);
     }
@@ -376,7 +376,7 @@ setTimeout(() => {
   checkHighlightedPlayersThumbnails();
 }, 2000);
 
-// Create a utility function to format dates more nicely
+// Cria uma função utilitária para formatar datas de forma mais agradável
 function formatDate(date) {
   const options = { 
     year: 'numeric', 
@@ -1144,7 +1144,7 @@ function checkKillstreakMilestone(player, serverName) {
 
 function cleanupKillstreaks() {
   // Killstreaks agora só resetam quando jogadores morrem - sem limpeza automática
-  console.log('ℹ️ Limpeza de killstreak chamada - killstreaks só resetam na morte');
+  console.log('ℹ️ Limpeza de sequência de abates chamada - sequências só resetam na morte');
   // Apenas salva o estado atual para garantir persistência
   saveKillstreaks(activeKillstreaks);
 }
