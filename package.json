@@ -1,7 +1,7 @@
 {
   "name": "deadside-killfeed-bot",
   "version": "1.0.0",
-  "description": "A fully custom Node.js bot for Deadside game servers. Reads death logs over SFTP and pushes dynamic killfeed, suicides, longshots, and leaderboard stats to Discord.",
+  "description": "Bot Node.js totalmente personalizado para servidores Deadside. Lê logs de morte via SFTP e publica killfeed dinâmico, suicídios, tiros longos e estatísticas de placar no Discord.",
   "main": "deadsidekillfeed.js",
   "scripts": {
     "start": "node deadsidekillfeed.js",
@@ -12,9 +12,11 @@
     "discord",
     "bot",
     "killfeed",
-    "leaderboard",
+    "placar",
     "gaming",
-    "sftp"
+    "sftp",
+    "portugues",
+    "brasil"
   ],
   "author": "",
   "license": "MIT",

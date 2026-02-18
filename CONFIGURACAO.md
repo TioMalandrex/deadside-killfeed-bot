@@ -1,8 +1,5 @@
 # Guia de Configuração
 
-> 🇧🇷 **Esta é a versão em Português Brasileiro da documentação.**  
-> 🇺🇸 **[English version (CONFIGURATION.md)](CONFIGURATION.md)**
-
 Este guia explica como configurar e implantar o Bot Deadside Killfeed.
 
 ## Pré-requisitos

@@ -1,8 +1,5 @@
 # Documentação do Esquema de Dados
 
-> 🇧🇷 **Esta é a versão em Português Brasileiro da documentação.**  
-> 🇺🇸 **[English version (DATA_SCHEMA.md)](DATA_SCHEMA.md)**
-
 Este documento descreve a estrutura de todos os arquivos de dados JSON usados pelo Bot Deadside Killfeed.
 
 ## Visão Geral

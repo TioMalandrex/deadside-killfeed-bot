@@ -1,8 +1,5 @@
 # Política de Segurança
 
-> 🇧🇷 **Esta é a versão em Português Brasileiro da documentação.**  
-> 🇺🇸 **[English version (SECURITY.md)](SECURITY.md)**
-
 ## Visão Geral
 
 Este documento descreve considerações de segurança e melhores práticas para o Bot Deadside Killfeed.
