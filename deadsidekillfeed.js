@@ -989,30 +989,47 @@ function trackLongshot(killer, victim, distance, weapon, timestamp, serverName) 
     serverName
   };
   
-  // Add to all time longshots
-  longshots.all_time.push(longshotEntry);
+  // Create a unique key to prevent duplicate longshots
+  const longshotKey = `${killer}|${victim}|${distance}|${weapon}|${timestamp}`;
   
-  // Add to daily longshots
-  longshots.daily[daily].push(longshotEntry);
+  // Check if this exact longshot already exists in all_time
+  const isDuplicate = longshots.all_time.some(shot => 
+    shot.killer === killer && 
+    shot.victim === victim && 
+    shot.distance === distance && 
+    shot.weapon === weapon &&
+    shot.timestamp === longshotEntry.timestamp
+  );
   
-  // Add to weekly longshots
-  longshots.weekly[weekly].push(longshotEntry);
-  
-  // Add to monthly longshots
-  longshots.monthly[monthly].push(longshotEntry);
-  
-  // Sort all longshot arrays by distance (descending)
-  longshots.all_time.sort((a, b) => b.distance - a.distance);
-  longshots.daily[daily].sort((a, b) => b.distance - a.distance);
-  longshots.weekly[weekly].sort((a, b) => b.distance - a.distance);
-  longshots.monthly[monthly].sort((a, b) => b.distance - a.distance);
-  
-  // Keep only top 100 longshots for memory efficiency
-  const MAX_LONGSHOTS = 100;
-  if (longshots.all_time.length > MAX_LONGSHOTS) longshots.all_time.length = MAX_LONGSHOTS;
-  if (longshots.daily[daily].length > MAX_LONGSHOTS) longshots.daily[daily].length = MAX_LONGSHOTS;
-  if (longshots.weekly[weekly].length > MAX_LONGSHOTS) longshots.weekly[weekly].length = MAX_LONGSHOTS;
-  if (longshots.monthly[monthly].length > MAX_LONGSHOTS) longshots.monthly[monthly].length = MAX_LONGSHOTS;
+  // Only add if not a duplicate
+  if (!isDuplicate) {
+    // Add to all time longshots
+    longshots.all_time.push(longshotEntry);
+    
+    // Add to daily longshots
+    longshots.daily[daily].push(longshotEntry);
+    
+    // Add to weekly longshots
+    longshots.weekly[weekly].push(longshotEntry);
+    
+    // Add to monthly longshots
+    longshots.monthly[monthly].push(longshotEntry);
+    
+    // Sort all longshot arrays by distance (descending)
+    longshots.all_time.sort((a, b) => b.distance - a.distance);
+    longshots.daily[daily].sort((a, b) => b.distance - a.distance);
+    longshots.weekly[weekly].sort((a, b) => b.distance - a.distance);
+    longshots.monthly[monthly].sort((a, b) => b.distance - a.distance);
+    
+    // Keep only top 100 longshots for memory efficiency
+    const MAX_LONGSHOTS = 100;
+    if (longshots.all_time.length > MAX_LONGSHOTS) longshots.all_time.length = MAX_LONGSHOTS;
+    if (longshots.daily[daily].length > MAX_LONGSHOTS) longshots.daily[daily].length = MAX_LONGSHOTS;
+    if (longshots.weekly[weekly].length > MAX_LONGSHOTS) longshots.weekly[weekly].length = MAX_LONGSHOTS;
+    if (longshots.monthly[monthly].length > MAX_LONGSHOTS) longshots.monthly[monthly].length = MAX_LONGSHOTS;
+  } else {
+    console.log(`⚠️ Skipping duplicate longshot: ${killer} → ${victim} @ ${distance}m`);
+  }
 }
 
 // === KILLSTREAK TRACKING ===
@@ -1172,6 +1189,9 @@ function generateProgressBar(value, maxValue, length = 10) {
 // Generate a rich embed for leaderboards
 // Generate a rich embed for leaderboards
 function generateLeaderboardEmbed(data, title, period, limit = 10, serverName = null, config) {
+  // Discord embed field limit
+  const MAX_EMBED_FIELDS = 25;
+  
   // Convert object to array of player stats
   const players = Object.entries(data).map(([name, stats]) => ({
     name,
@@ -1191,8 +1211,20 @@ function generateLeaderboardEmbed(data, title, period, limit = 10, serverName = 
   // Sort by kills (descending)
   filteredPlayers.sort((a, b) => b.kills - a.kills);
   
+  // Calculate how many player fields we can show
+  // Each player needs 1 field, plus 1 blank field per 2 players
+  // Plus we need 2 fields for killstreaks section (header + data)
+  const killstreakFieldsNeeded = 2;
+  const maxPlayerFields = Math.floor((MAX_EMBED_FIELDS - killstreakFieldsNeeded) * 2 / 3); // Account for blank fields
+  
+  // Limit players to ensure we don't exceed Discord's 25 field limit
+  const effectiveLimit = Math.min(limit, maxPlayerFields);
+  if (effectiveLimit < limit) {
+    console.warn(`⚠️ Reducing leaderboard size from ${limit} to ${effectiveLimit} to stay within Discord embed field limit`);
+  }
+  
   // Take top N players
-  const topPlayers = filteredPlayers.slice(0, limit);
+  const topPlayers = filteredPlayers.slice(0, effectiveLimit);
   
   // Generate embed
   const embed = {
@@ -2346,10 +2378,39 @@ async function fetchAndProcessLogsFromServers() {
             
             // Reset killstreak when player dies to environment
             if (activeKillstreaks[victim]) {
+              const victimStreak = activeKillstreaks[victim].count;
+              
+              // If victim had a significant killstreak before dying (3 or more), announce it ended
+              if (victimStreak >= 3) {
+                const victimHighlight = getPlayerHighlight(victim);
+                
+                const endStreakEmbed = {
+                  title: "⚡ Killstreak Ended!",
+                  color: parseInt("DD3333", 16), // Red color for ended streaks
+                  description: `**${victim}'s** killstreak of **${victimStreak}** ended by **${cause}**!`,
+                  thumbnail: { 
+                    url: victimHighlight && victimHighlight.thumbnailUrl ? 
+                      victimHighlight.thumbnailUrl : 
+                      "https://i.imgur.com/6guD1s3.png" 
+                  },
+                  footer: { 
+                    text: config.serverName || "Deadside", 
+                    icon_url: config.iconUrl || "https://i.imgur.com/6guD1s3.png" 
+                  },
+                  timestamp: new Date().toISOString()
+                };
+                
+                await sendEmbedToDiscord(config.killWebhook, endStreakEmbed);
+              }
+              
+              // Reset the streak
               activeKillstreaks[victim].count = 0;
               if (config.serverName && activeKillstreaks[victim].servers[config.serverName]) {
                 activeKillstreaks[victim].servers[config.serverName].count = 0;
               }
+              
+              // Save updated killstreaks
+              saveKillstreaks(activeKillstreaks);
             }
           } else {
             // Update killstreak for this kill
