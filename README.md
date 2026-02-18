@@ -5,6 +5,8 @@ A fully custom Node.js bot for Deadside game servers. It reads death logs over S
 [![Node.js](https://img.shields.io/badge/Node.js-14%2B-green.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+**📖 [Documentação em Português (PT-BR)](README_PT-BR.md)**
+
 ---
 
 ## 📋 Table of Contents
