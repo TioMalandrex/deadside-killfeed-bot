@@ -2365,29 +2365,50 @@ async function fetchAndProcessLogsFromServers() {
           const distance = row[6];
           const distanceNum = parseInt(distance);
 
-          // Update player stats with this kill/death
-          updatePlayerStats(killer, victim, distance, cause, timestamp, config.serverName);
+          // Validate player names
+          if (!killer || typeof killer !== 'string' || killer.trim().length === 0) {
+            console.warn(`⚠️ Invalid killer name in row: ${JSON.stringify(row)}`);
+            continue;
+          }
+          if (!victim || typeof victim !== 'string' || victim.trim().length === 0) {
+            console.warn(`⚠️ Invalid victim name in row: ${JSON.stringify(row)}`);
+            continue;
+          }
+          
+          // Sanitize player names (trim whitespace, limit length)
+          const MAX_PLAYER_NAME_LENGTH = 100; // Discord username limit
+          const sanitizedKiller = killer.trim().substring(0, MAX_PLAYER_NAME_LENGTH);
+          const sanitizedVictim = victim.trim().substring(0, MAX_PLAYER_NAME_LENGTH);
+          
+          // Validate cause/weapon
+          if (!cause || typeof cause !== 'string') {
+            console.warn(`⚠️ Invalid cause in row: ${JSON.stringify(row)}`);
+            continue;
+          }
 
-          const isSuicide = killer === victim;
+          // Update player stats with this kill/death (use sanitized names)
+          updatePlayerStats(sanitizedKiller, sanitizedVictim, distance, cause, timestamp, config.serverName);
+
+          const isSuicide = sanitizedKiller === sanitizedVictim;
           const causeLower = cause.toLowerCase();
 
           if (isSuicide || causeLower.includes('suicide') || causeLower.includes('falling') || causeLower.includes('relocation')) {
             // Create and send suicide embed
-            const suicideEmbed = createSuicideEmbed(victim, cause, config.serverName, config);
+            const suicideEmbed = createSuicideEmbed(sanitizedVictim, cause, config.serverName, config);
             await sendEmbedToDiscord(config.suicideWebhook, suicideEmbed);
             
             // Reset killstreak when player dies to environment
-            if (activeKillstreaks[victim]) {
-              const victimStreak = activeKillstreaks[victim].count;
+            if (activeKillstreaks[sanitizedVictim]) {
+              const victimStreak = activeKillstreaks[sanitizedVictim].count;
               
               // If victim had a significant killstreak before dying (3 or more), announce it ended
               if (victimStreak >= 3) {
-                const victimHighlight = getPlayerHighlight(victim);
+                const victimHighlight = getPlayerHighlight(sanitizedVictim);
                 
                 const endStreakEmbed = {
                   title: "⚡ Killstreak Ended!",
                   color: parseInt("DD3333", 16), // Red color for ended streaks
-                  description: `**${victim}'s** killstreak of **${victimStreak}** ended by **${cause}**!`,
+                  description: `**${sanitizedVictim}'s** killstreak of **${victimStreak}** ended by **${cause}**!`,
                   thumbnail: { 
                     url: victimHighlight && victimHighlight.thumbnailUrl ? 
                       victimHighlight.thumbnailUrl : 
@@ -2404,26 +2425,26 @@ async function fetchAndProcessLogsFromServers() {
               }
               
               // Reset the streak
-              activeKillstreaks[victim].count = 0;
-              if (config.serverName && activeKillstreaks[victim].servers[config.serverName]) {
-                activeKillstreaks[victim].servers[config.serverName].count = 0;
+              activeKillstreaks[sanitizedVictim].count = 0;
+              if (config.serverName && activeKillstreaks[sanitizedVictim].servers[config.serverName]) {
+                activeKillstreaks[sanitizedVictim].servers[config.serverName].count = 0;
               }
               
               // Save updated killstreaks
               saveKillstreaks(activeKillstreaks);
             }
           } else {
-            // Update killstreak for this kill
-            const killstreakResult = updateKillstreak(killer, victim, config.serverName, config);
+            // Update killstreak for this kill (use sanitized names)
+            const killstreakResult = updateKillstreak(sanitizedKiller, sanitizedVictim, config.serverName, config);
             
             // Check for longshot (over 200m)
             if (distanceNum >= 200) {
               // Create and send longshot embed
-              const longshotEmbed = createLongshotEmbed(killer, victim, cause, distanceNum, config.serverName, config);
+              const longshotEmbed = createLongshotEmbed(sanitizedKiller, sanitizedVictim, cause, distanceNum, config.serverName, config);
               await sendEmbedToDiscord(config.killWebhook, longshotEmbed);
             } else {
               // Create and send normal kill embed
-              const killEmbed = createKillEmbed(killer, victim, cause, distanceNum, config.serverName, config);
+              const killEmbed = createKillEmbed(sanitizedKiller, sanitizedVictim, cause, distanceNum, config.serverName, config);
               await sendEmbedToDiscord(config.killWebhook, killEmbed);
             }
             
