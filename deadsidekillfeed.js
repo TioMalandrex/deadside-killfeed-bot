@@ -4,6 +4,7 @@ const { parse } = require('csv-parse');
 const fs = require('fs');
 const express = require('express');
 const bodyParser = require('body-parser');
+require('dotenv').config();
 
 // Add these global error handlers here
 process.on('uncaughtException', (err) => {
@@ -26,25 +27,32 @@ process.on('unhandledRejection', (reason, promise) => {
  */
 
 // === SERVER CONFIGURATIONS ===
+// Configuration now loaded from environment variables (.env file)
+// See .env.example for required variables
 const serverConfigs = [
   {
-    host: ,
-    port: ,
-    username: ,
-    password: ,
-    remoteDir: ,
-    killWebhook: ,
-    suicideWebhook: ,
-    leaderboardWebhook: ,
-    dailyLeaderboardWebhook: ,
-    weeklyLeaderboardWebhook: ,
-    monthlyLeaderboardWebhook: ,
-    allTimeLeaderboardWebhook: ,
-    longshotWebhook: ,
-    allPlayersStatsWebhook: ,
-    serverName: "3X US",
-    color: , 
-    iconUrl: 
+    host: process.env.SFTP_HOST,
+    port: parseInt(process.env.SFTP_PORT) || 22,
+    username: process.env.SFTP_USERNAME,
+    password: process.env.SFTP_PASSWORD,
+    remoteDir: process.env.SFTP_REMOTE_DIR,
+    killWebhook: process.env.DISCORD_KILL_WEBHOOK,
+    suicideWebhook: process.env.DISCORD_SUICIDE_WEBHOOK,
+    leaderboardWebhook: process.env.DISCORD_LEADERBOARD_WEBHOOK,
+    dailyLeaderboardWebhook: process.env.DISCORD_DAILY_LEADERBOARD_WEBHOOK,
+    weeklyLeaderboardWebhook: process.env.DISCORD_WEEKLY_LEADERBOARD_WEBHOOK,
+    monthlyLeaderboardWebhook: process.env.DISCORD_MONTHLY_LEADERBOARD_WEBHOOK,
+    allTimeLeaderboardWebhook: process.env.DISCORD_ALLTIME_LEADERBOARD_WEBHOOK,
+    longshotWebhook: process.env.DISCORD_LONGSHOT_WEBHOOK,
+    allPlayersStatsWebhook: process.env.DISCORD_ALL_PLAYERS_STATS_WEBHOOK,
+    serverName: process.env.SERVER_NAME || "3X US",
+    color: process.env.SERVER_COLOR || "#00FF00",
+    iconUrl: process.env.SERVER_ICON_URL,
+    // SFTP connection options
+    connectOptions: {
+      readyTimeout: 30000, // 30 second timeout for SFTP connections
+      keepaliveInterval: 10000 // Send keepalive every 10 seconds
+    }
   }
 ];
 
@@ -612,6 +620,48 @@ function getNextSuicidePhrase() {
 }
 // === DATA MANAGEMENT FUNCTIONS ===
 
+/**
+ * Atomic file write with backup to prevent data corruption
+ * Writes to a temporary file first, then renames to the target file
+ * This ensures the original file is not corrupted if the write fails
+ */
+function atomicWriteFile(filePath, data) {
+  const tempPath = `${filePath}.tmp`;
+  const backupPath = `${filePath}.backup`;
+  
+  try {
+    // Write to temporary file first
+    fs.writeFileSync(tempPath, data, 'utf8');
+    
+    // If original file exists, create a backup
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.copyFileSync(filePath, backupPath);
+      } catch (backupErr) {
+        console.warn(`⚠️ Could not create backup for ${filePath}: ${backupErr.message}`);
+      }
+    }
+    
+    // Atomically rename temp file to target file
+    fs.renameSync(tempPath, filePath);
+    
+    return true;
+  } catch (err) {
+    console.error(`❌ Atomic write failed for ${filePath}:`, err.message);
+    
+    // Clean up temp file if it exists
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch (cleanupErr) {
+      console.error(`❌ Failed to clean up temp file:`, cleanupErr.message);
+    }
+    
+    return false;
+  }
+}
+
 // Load seen lines from file
 function loadSeenLines() {
   try {
@@ -626,8 +676,10 @@ function loadSeenLines() {
 // Save seen lines to file
 function saveSeenLines(seenLines) {
   try {
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify([...seenLines]));
-    console.log('✅ Saved seen lines.');
+    const success = atomicWriteFile(MEMORY_FILE, JSON.stringify([...seenLines]));
+    if (success) {
+      console.log('✅ Saved seen lines.');
+    }
   } catch (err) {
     console.error('❌ Failed to save seen lines:', err.message);
   }
@@ -646,8 +698,10 @@ function loadLeaderboards() {
 
 function saveLeaderboards(leaderboard) {
   try {
-    fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(leaderboard));
-    console.log('✅ Saved leaderboards.');
+    const success = atomicWriteFile(LEADERBOARD_FILE, JSON.stringify(leaderboard));
+    if (success) {
+      console.log('✅ Saved leaderboards.');
+    }
   } catch (err) {
     console.error('❌ Failed to save leaderboards:', err.message);
   }
@@ -670,7 +724,10 @@ function loadMessageIndexes() {
 
 function saveMessageIndexes(indexes) {
   try {
-    fs.writeFileSync(MESSAGE_INDEXES_FILE, JSON.stringify(indexes));
+    const success = atomicWriteFile(MESSAGE_INDEXES_FILE, JSON.stringify(indexes));
+    if (!success) {
+      console.error('❌ Failed to save message indexes');
+    }
   } catch (err) {
     console.error('❌ Failed to save message indexes:', err.message);
   }
@@ -694,8 +751,10 @@ function loadPlayerStats() {
 
 function savePlayerStats(stats) {
   try {
-    fs.writeFileSync(STATS_FILE, JSON.stringify(stats));
-    console.log('✅ Saved player stats.');
+    const success = atomicWriteFile(STATS_FILE, JSON.stringify(stats, null, 2));
+    if (success) {
+      console.log('✅ Saved player stats.');
+    }
   } catch (err) {
     console.error('❌ Failed to save player stats:', err.message);
   }
@@ -719,8 +778,10 @@ function loadLongshots() {
 
 function saveLongshots(longshots) {
   try {
-    fs.writeFileSync(LONGSHOTS_FILE, JSON.stringify(longshots));
-    console.log('✅ Saved longshots.');
+    const success = atomicWriteFile(LONGSHOTS_FILE, JSON.stringify(longshots, null, 2));
+    if (success) {
+      console.log('✅ Saved longshots.');
+    }
   } catch (err) {
     console.error('❌ Failed to save longshots:', err.message);
   }
@@ -741,8 +802,10 @@ function loadKillstreaks() {
 
 function saveKillstreaks(killstreaks) {
   try {
-    fs.writeFileSync(KILLSTREAKS_FILE, JSON.stringify(killstreaks));
-    console.log('✅ Saved killstreaks to file.');
+    const success = atomicWriteFile(KILLSTREAKS_FILE, JSON.stringify(killstreaks, null, 2));
+    if (success) {
+      console.log('✅ Saved killstreaks to file.');
+    }
   } catch (err) {
     console.error('❌ Failed to save killstreaks:', err.message);
   }
@@ -795,7 +858,8 @@ function updateKDRatio(player) {
     if (periodData && periodData[player]) {
       const stats = periodData[player];
       // Only use player-caused deaths for K/D (not envDeaths)
-      stats.kd = stats.deaths === 0 ? stats.kills : parseFloat((stats.kills / stats.deaths).toFixed(2));
+      // When deaths are 0, K/D is displayed as kills (common convention for infinite K/D)
+      stats.kd = stats.deaths === 0 ? parseFloat(stats.kills.toFixed(2)) : parseFloat((stats.kills / stats.deaths).toFixed(2));
     }
   }
   
@@ -2192,7 +2256,15 @@ async function fetchAndProcessLogsFromServers() {
 
     try {
       console.log(`🔌 Connecting to ${config.host}...`);
-      await retryAsync(() => sftp.connect(config), 3, 5000); // More retries, longer delay
+      // Merge SFTP connection options with server config
+      const connectionConfig = {
+        host: config.host,
+        port: config.port,
+        username: config.username,
+        password: config.password,
+        ...(config.connectOptions || {})
+      };
+      await retryAsync(() => sftp.connect(connectionConfig), 3, 5000); // More retries, longer delay
       console.log(`✅ Connected to ${config.host}`);
       
       console.log(`📋 Listing files in ${config.remoteDir}`);
@@ -2215,7 +2287,14 @@ async function fetchAndProcessLogsFromServers() {
           // Try to reconnect before continuing to next file
           try {
             await sftp.end();
-            await retryAsync(() => sftp.connect(config), 2, 3000);
+            const connectionConfig = {
+              host: config.host,
+              port: config.port,
+              username: config.username,
+              password: config.password,
+              ...(config.connectOptions || {})
+            };
+            await retryAsync(() => sftp.connect(connectionConfig), 2, 3000);
           } catch (reconnectErr) {
             console.error(`❌ Failed to reconnect:`, reconnectErr.message);
           }
