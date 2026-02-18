@@ -4,95 +4,103 @@ const { parse } = require('csv-parse');
 const fs = require('fs');
 const express = require('express');
 const bodyParser = require('body-parser');
+require('dotenv').config();
 
-// Add these global error handlers here
+// Adiciona os manipuladores de erros globais aqui
 process.on('uncaughtException', (err) => {
-  console.error('❌ Uncaught exception:', err.message);
-  console.log('🔄 The script will continue running and try again next cycle');
+  console.error('❌ Exceção não capturada:', err.message);
+  console.log('🔄 O script continuará executando e tentará novamente no próximo ciclo');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled rejection at:', promise);
-  console.error('💬 Reason:', reason);
-  console.log('🔄 The script will continue running and try again next cycle');
+  console.error('❌ Rejeição não tratada em:', promise);
+  console.error('💬 Razão:', reason);
+  console.log('🔄 O script continuará executando e tentará novamente no próximo ciclo');
 });
 
 /**
  * =========================================
- * DEADSIDE KILLFEED & LEADERBOARD TRACKING
+ * RASTREAMENTO DE KILLFEED E LEADERBOARD DO DEADSIDE
  * =========================================
- * Enhanced Discord integration for Deadside servers
- * With professional visuals and rich embeds
+ * Integração aprimorada do Discord para servidores Deadside
+ * Com visuais profissionais e embeds ricos
  */
 
-// === SERVER CONFIGURATIONS ===
+// === CONFIGURAÇÕES DO SERVIDOR ===
+// Configuração agora carregada das variáveis de ambiente (arquivo .env)
+// Veja .env.example para as variáveis necessárias
 const serverConfigs = [
   {
-    host: ,
-    port: ,
-    username: ,
-    password: ,
-    remoteDir: ,
-    killWebhook: ,
-    suicideWebhook: ,
-    leaderboardWebhook: ,
-    dailyLeaderboardWebhook: ,
-    weeklyLeaderboardWebhook: ,
-    monthlyLeaderboardWebhook: ,
-    allTimeLeaderboardWebhook: ,
-    longshotWebhook: ,
-    allPlayersStatsWebhook: ,
-    serverName: "3X US",
-    color: , 
-    iconUrl: 
+    host: process.env.SFTP_HOST,
+    port: parseInt(process.env.SFTP_PORT) || 22,
+    username: process.env.SFTP_USERNAME,
+    password: process.env.SFTP_PASSWORD,
+    remoteDir: process.env.SFTP_REMOTE_DIR,
+    killWebhook: process.env.DISCORD_KILL_WEBHOOK,
+    suicideWebhook: process.env.DISCORD_SUICIDE_WEBHOOK,
+    leaderboardWebhook: process.env.DISCORD_LEADERBOARD_WEBHOOK,
+    dailyLeaderboardWebhook: process.env.DISCORD_DAILY_LEADERBOARD_WEBHOOK,
+    weeklyLeaderboardWebhook: process.env.DISCORD_WEEKLY_LEADERBOARD_WEBHOOK,
+    monthlyLeaderboardWebhook: process.env.DISCORD_MONTHLY_LEADERBOARD_WEBHOOK,
+    allTimeLeaderboardWebhook: process.env.DISCORD_ALLTIME_LEADERBOARD_WEBHOOK,
+    longshotWebhook: process.env.DISCORD_LONGSHOT_WEBHOOK,
+    allPlayersStatsWebhook: process.env.DISCORD_ALL_PLAYERS_STATS_WEBHOOK,
+    serverName: process.env.SERVER_NAME || "3X US",
+    color: process.env.SERVER_COLOR || "#00FF00",
+    iconUrl: process.env.SERVER_ICON_URL,
+    // Opções de conexão SFTP
+    connectOptions: {
+      readyTimeout: 30000, // Timeout de 30 segundos para conexões SFTP
+      keepaliveInterval: 10000 // Envia keepalive a cada 10 segundos
+    }
   }
 ];
 
-// === MEMORY FILES ===
+// === ARQUIVOS DE MEMÓRIA ===
 const MEMORY_FILE = 'seen-lines.json';
-const LEADERBOARD_FILE = 'leaderboard.json'; // Legacy - keeping for backward compatibility
-const STATS_FILE = 'player-stats.json'; // New format for player stats
-const LONGSHOTS_FILE = 'longshots.json'; // For tracking long-distance kills
-const KILLSTREAKS_FILE = 'killstreaks.json'; // For tracking killstreaks
-const MESSAGE_INDEXES_FILE = 'message-indexes.json'; // For tracking last used message indexes
+const LEADERBOARD_FILE = 'leaderboard.json'; // Legado - mantendo para compatibilidade retroativa
+const STATS_FILE = 'player-stats.json'; // Novo formato para estatísticas de jogadores
+const LONGSHOTS_FILE = 'longshots.json'; // Para rastrear abates de longa distância
+const KILLSTREAKS_FILE = 'killstreaks.json'; // Para rastrear sequências de abates
+const MESSAGE_INDEXES_FILE = 'message-indexes.json'; // Para rastrear os últimos índices de mensagem usados
 
 // === RATE LIMITS ===
 const RATE_LIMITS = {
-  // Track rate limits for each webhook URL
+  // Rastreia limites de taxa para cada URL de webhook
   webhooks: {},
-  // Global queue for messages to avoid hitting rate limits
+  // Fila global de mensagens para evitar atingir limites de taxa
   queue: [],
-  // Is the queue processor running?
+  // O processador de fila está em execução?
   processing: false
 };
 
-// Load data (properly load from files instead of resetting)
-let seenLines = loadSeenLines(); // Load previously seen lines
-let leaderboards = loadLeaderboards(); // Load leaderboards
-let playerStats = loadPlayerStats(); // Load player stats
-let longshots = loadLongshots(); // Load longshots
-let activeKillstreaks = loadKillstreaks(); // Load killstreaks
-let messageIndexes = loadMessageIndexes(); // Load message indexes
+// Carregar dados (carregar adequadamente dos arquivos ao invés de resetar)
+let seenLines = loadSeenLines(); // Carregar linhas vistas anteriormente
+let leaderboards = loadLeaderboards(); // Carregar tabelas de classificação
+let playerStats = loadPlayerStats(); // Carregar estatísticas de jogadores
+let longshots = loadLongshots(); // Carregar longshots
+let activeKillstreaks = loadKillstreaks(); // Carregar sequências de abates
+let messageIndexes = loadMessageIndexes(); // Carregar índices de mensagem
 
-console.log(`📊 Loaded ${seenLines.size} previously seen lines`);
-console.log(`📊 Loaded ${Object.keys(playerStats.all_time).length} all-time player records`);
+console.log(`📊 Carregadas ${seenLines.size} linhas vistas anteriormente`);
+console.log(`📊 Carregados ${Object.keys(playerStats.all_time).length} registros de jogadores de todos os tempos`);
 
-console.log(`📊 Loaded ${Object.keys(activeKillstreaks).length} active killstreaks`);
-setTimeout(logActiveKillstreaks, 3000); // Log active killstreaks after startup
-// === EMBED TEMPLATES ===
+console.log(`📊 Carregadas ${Object.keys(activeKillstreaks).length} sequências de abates ativas`);
+setTimeout(logActiveKillstreaks, 3000); // Registrar sequências de abates ativas após inicialização
+// === MODELOS DE EMBED ===
 
-// These templates will be used for Discord's rich embeds
+// Estes modelos serão usados para os embeds ricos do Discord
 const EMBED_TEMPLATES = {
-  // Kill notification embed
+  // Embed de notificação de abate
   kill: {
-    title: "{emoji} {killer} eliminated {victim}",
-    color: null, // Will be set from server config
-    description: null, // Will be generated from kill phrase
+    title: "{emoji} {killer} eliminou {victim}",
+    color: null, // Será definido a partir da configuração do servidor
+    description: null, // Será gerado a partir da frase de abate
     thumbnail: { url: "{weaponIcon}" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     fields: [
-      { name: "Weapon", value: "{weapon}", inline: true },
-      { name: "Distance", value: "{distance}m", inline: true }
+      { name: "Arma", value: "{weapon}", inline: true },
+      { name: "Distância", value: "{distance}m", inline: true }
     ],
     footer: { 
       text: "{serverName}", 
@@ -101,13 +109,13 @@ const EMBED_TEMPLATES = {
     timestamp: new Date().toISOString()
   },
   
-  // Suicide notification embed
+  // Embed de notificação de suicídio
   suicide: {
-    title: "{emoji} {victim} died",
-    color: "#DD3333", // Red color for suicides
-    description: null, // Will be generated from suicide phrase
+    title: "{emoji} {victim} morreu",
+    color: "#DD3333", // Cor vermelha para suicídios
+    description: null, // Será gerado a partir da frase de suicídio
     thumbnail: { url: "https://i.imgur.com/6guD1s3.png" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     footer: { 
       text: "{serverName}", 
       icon_url: "{serverIcon}" 
@@ -115,13 +123,13 @@ const EMBED_TEMPLATES = {
     timestamp: new Date().toISOString()
   },
   
-  // Killstreak notification embed
+  // Embed de notificação de sequência de abates
   killstreak: {
-    title: "⚡ Killstreak Alert!",
-    color: "#FFAA00", // Orange color for killstreaks
-    description: "**{player}** {milestone} ({count} kills)",
+    title: "⚡ Alerta de Sequência de Abates!",
+    color: "#FFAA00", // Cor laranja para sequências de abates
+    description: "**{player}** {milestone} ({count} abates)",
     thumbnail: { url: "https://i.imgur.com/6guD1s3.png" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     footer: { 
       text: "{serverName}", 
       icon_url: "{serverIcon}" 
@@ -129,17 +137,17 @@ const EMBED_TEMPLATES = {
     timestamp: new Date().toISOString()
   },
   
-  // Longshot embed template
+  // Modelo de embed para longshot
   longshot: {
-    title: "🎯 Incredible Long-range Kill!",
-    color: "#AA33AA", // Purple color for longshots
-    description: null, // Will be generated from longshot phrase
+    title: "🎯 Abate de Longa Distância Incrível!",
+    color: "#AA33AA", // Cor roxa para longshots
+    description: null, // Será gerado a partir da frase de longshot
     fields: [
-      { name: "Distance", value: "**{distance}m**", inline: true },
-      { name: "Weapon", value: "{weapon}", inline: true }
+      { name: "Distância", value: "**{distance}m**", inline: true },
+      { name: "Arma", value: "{weapon}", inline: true }
     ],
     thumbnail: { url: "https://i.imgur.com/6guD1s3.png" },
-    image: { url: null }, // CHANGED: Use an object with null URL
+    image: { url: null }, // ALTERADO: Usar um objeto com URL null
     footer: { 
       text: "{serverName}", 
       icon_url: "{serverIcon}" 
@@ -155,7 +163,7 @@ async function retryAsync(fn, retries = 3, delayMs = 2000) {
       return await fn();
     } catch (err) {
       if (i < retries - 1) {
-        console.warn(`⚠️ Retry ${i + 1} after error: ${err.message}`);
+        console.warn(`⚠️ Tentativa ${i + 1} após erro: ${err.message}`);
         await new Promise(res => setTimeout(res, delayMs));
       } else {
         throw err;
@@ -166,23 +174,23 @@ async function retryAsync(fn, retries = 3, delayMs = 2000) {
 // === HIGHLIGHTED PLAYERS CONFIG ===
 const HIGHLIGHTED_PLAYERS = {
   "JeffBezzoss": { 
-    color: "#FFD700", // Gold color
-    prefix: "💸ASH WAKE💸 ", // Prefix to add before the name
-    emoji: "💸", // Emoji for additional highlighting
+    color: "#FFD700", // Cor dourada
+    prefix: "💸ASH WAKE💸 ", // Prefixo a adicionar antes do nome
+    emoji: "💸", // Emoji para destaque adicional
     gifUrl: "https://i.imgur.com/UyD4yBI.png", // ASH WAKE GIF
     thumbnailUrl: "https://i.imgur.com/BXUz0Sv.png" // Default thumbnail image
   },
   "YouLackSkill": { 
-    color: "#FFD700", // Gold color
-    prefix: "💸ASH WAKE💸 ", // Prefix to add before the name
-    emoji: "💸", // Emoji for additional highlighting
+    color: "#FFD700", // Cor dourada
+    prefix: "💸ASH WAKE💸 ", // Prefixo a adicionar antes do nome
+    emoji: "💸", // Emoji para destaque adicional
     gifUrl: "https://i.imgur.com/UyD4yBI.png", // ASH WAKE GIF
     thumbnailUrl: "https://i.imgur.com/BXUz0Sv.png" // Default thumbnail image
   },
   "XGrimReaperX252": { 
-    color: "#FFD700", // Gold color
-    prefix: "💸ASH WAKE💸 ", // Prefix to add before the name
-    emoji: "💸", // Emoji for additional highlighting
+    color: "#FFD700", // Cor dourada
+    prefix: "💸ASH WAKE💸 ", // Prefixo a adicionar antes do nome
+    emoji: "💸", // Emoji para destaque adicional
     gifUrl: "https://i.imgur.com/UyD4yBI.png", // ASH WAKE GIF
     thumbnailUrl: "https://i.imgur.com/BXUz0Sv.png" // Default thumbnail image
   },
@@ -237,126 +245,126 @@ const HIGHLIGHTED_PLAYERS = {
   }
 };
 
-// Add this constant with your other file constants
+// Adiciona esta constante com as outras constantes de arquivo
 const HIGHLIGHTED_PLAYERS_FILE = 'highlighted-players.json';
-// Function to check if a player is highlighted
+// Função para verificar se um jogador está em destaque
 function isHighlightedPlayer(playerName) {
   return HIGHLIGHTED_PLAYERS.hasOwnProperty(playerName);
 }
 
-// Function to get player highlight info
+// Função para obter informações de destaque do jogador
 function getPlayerHighlight(playerName) {
   return HIGHLIGHTED_PLAYERS[playerName] || null;
 }
 
-// Function to format player name with highlight if applicable
+// Função para formatar o nome do jogador com destaque se aplicável
 function formatPlayerName(playerName) {
   const highlight = getPlayerHighlight(playerName);
   
   if (highlight) {
-    // Apply the role prefix and emoji highlighting
+    // Aplica o prefixo de função e destaque com emoji
     return `${highlight.prefix}**${playerName}** ${highlight.emoji}`;
   }
   
-  // Regular player just gets bold formatting
+  // Jogador regular recebe apenas formatação em negrito
   return `**${playerName}**`;
 }
 
-// Functions to save and load highlighted players
+// Funções para salvar e carregar jogadores em destaque
 function saveHighlightedPlayers() {
   try {
     fs.writeFileSync(HIGHLIGHTED_PLAYERS_FILE, JSON.stringify(HIGHLIGHTED_PLAYERS));
-    console.log('✅ Saved highlighted players configuration.');
+    console.log('✅ Configuração de jogadores em destaque salva.');
   } catch (err) {
-    console.error('❌ Failed to save highlighted players:', err.message);
+    console.error('❌ Falha ao salvar jogadores em destaque:', err.message);
   }
 }
 
 function loadHighlightedPlayers() {
   try {
-    // Store a copy of your code-defined players
+    // Armazena uma cópia dos jogadores definidos no código
     const codeDefinedPlayers = JSON.parse(JSON.stringify(HIGHLIGHTED_PLAYERS));
     
-    // Try to load from file
+    // Tenta carregar do arquivo
     const data = fs.readFileSync(HIGHLIGHTED_PLAYERS_FILE);
     const loaded = JSON.parse(data);
     
-    // Clear current config to start fresh
+    // Limpa a configuração atual para começar do zero
     for (const player in HIGHLIGHTED_PLAYERS) {
       delete HIGHLIGHTED_PLAYERS[player];
     }
     
-    // Add all code-defined players back first
+    // Adiciona todos os jogadores definidos no código primeiro
     for (const player in codeDefinedPlayers) {
       HIGHLIGHTED_PLAYERS[player] = codeDefinedPlayers[player];
     }
     
-    // Only update players that exist in our code
+    // Atualiza apenas jogadores que existem no nosso código
     for (const player in loaded) {
       if (codeDefinedPlayers.hasOwnProperty(player)) {
-        // Take file values but ensure required properties exist
+        // Pega valores do arquivo mas garante que propriedades necessárias existam
         HIGHLIGHTED_PLAYERS[player] = loaded[player];
         
-        // Make sure gifUrl is set
+        // Garante que gifUrl está definido
         if (!HIGHLIGHTED_PLAYERS[player].gifUrl) {
-          console.log(`⚠️ Fixing missing gifUrl for ${player}`);
+          console.log(`⚠️ Corrigindo gifUrl ausente para ${player}`);
           HIGHLIGHTED_PLAYERS[player].gifUrl = codeDefinedPlayers[player].gifUrl;
         }
         
-        // Make sure thumbnailUrl is set
+        // Garante que thumbnailUrl está definido
         if (!HIGHLIGHTED_PLAYERS[player].thumbnailUrl) {
-          console.log(`⚠️ Fixing missing thumbnailUrl for ${player}`);
+          console.log(`⚠️ Corrigindo thumbnailUrl ausente para ${player}`);
           HIGHLIGHTED_PLAYERS[player].thumbnailUrl = codeDefinedPlayers[player].thumbnailUrl;
         }
       }
     }
     
-    console.log('✅ Loaded highlighted players configuration.');
+    console.log('✅ Configuração de jogadores em destaque carregada.');
     
-    // Save the fixed configuration back to file
+    // Salva a configuração corrigida de volta no arquivo
     saveHighlightedPlayers();
   } catch (err) {
-    console.log('ℹ️ No highlighted players file found or error reading. Using defaults.');
-    saveHighlightedPlayers(); // Create the file with defaults
+    console.log('ℹ️ Nenhum arquivo de jogadores em destaque encontrado ou erro ao ler. Usando padrões.');
+    saveHighlightedPlayers(); // Cria o arquivo com padrões
   }
 }
-// Function to clean up and reset highlighted players to code defaults
+// Função para limpar e resetar jogadores em destaque para os padrões do código
 function resetHighlightedPlayers() {
-  console.log('🧹 Resetting highlighted players to code defaults...');
+  console.log('🧹 Resetando jogadores em destaque para os padrões do código...');
   
   try {
-    // Delete the saved file first
+    // Deleta o arquivo salvo primeiro
     fs.unlinkSync(HIGHLIGHTED_PLAYERS_FILE);
-    console.log('✅ Deleted saved highlighted players file');
+    console.log('✅ Arquivo de jogadores em destaque salvo deletado');
   } catch (err) {
-    console.log('ℹ️ No file to delete or error deleting');
+    console.log('ℹ️ Nenhum arquivo para deletar ou erro ao deletar');
   }
   
-  // Run validation to show current state
+  // Executa validação para mostrar estado atual
   validateHighlightedPlayerUrls();
   
-  // Save with current code defaults
+  // Salva com os padrões atuais do código
   saveHighlightedPlayers();
-  console.log('✅ Reset highlighted players completed');
+  console.log('✅ Reset de jogadores em destaque concluído');
 }
-// Add a function to check for thumbnail URLs in the HIGHLIGHTED_PLAYERS object
+// Adiciona uma função para verificar URLs de miniaturas no objeto HIGHLIGHTED_PLAYERS
 function checkHighlightedPlayersThumbnails() {
-  console.log('🔍 Checking highlighted players Thumbnail URLs:');
+  console.log('🔍 Verificando URLs de miniaturas de jogadores em destaque:');
   for (const player in HIGHLIGHTED_PLAYERS) {
     const highlight = HIGHLIGHTED_PLAYERS[player];
     if (highlight.thumbnailUrl) {
-      console.log(`✅ ${player} has Thumbnail URL: ${highlight.thumbnailUrl}`);
+      console.log(`✅ ${player} tem URL de miniatura: ${highlight.thumbnailUrl}`);
     } else {
-      console.log(`⚠️ ${player} is missing Thumbnail URL - will use GIF or weapon icon`);
+      console.log(`⚠️ ${player} está sem URL de miniatura - usará GIF ou ícone de arma`);
     }
   }
 }
 function checkHighlightedPlayersGifs() {
-  console.log('🔍 Checking highlighted players GIF URLs:');
+  console.log('🔍 Verificando URLs de GIF de jogadores em destaque:');
   for (const player in HIGHLIGHTED_PLAYERS) {
     const highlight = HIGHLIGHTED_PLAYERS[player];
     if (highlight.gifUrl) {
-      console.log(`✅ ${player} has GIF URL: ${highlight.gifUrl}`);
+      console.log(`✅ ${player} tem URL de GIF: ${highlight.gifUrl}`);
     } else {
       console.log(`❌ ${player} is missing GIF URL!`);
     }
@@ -368,7 +376,7 @@ setTimeout(() => {
   checkHighlightedPlayersThumbnails();
 }, 2000);
 
-// Create a utility function to format dates more nicely
+// Cria uma função utilitária para formatar datas de forma mais agradável
 function formatDate(date) {
   const options = { 
     year: 'numeric', 
@@ -379,135 +387,135 @@ function formatDate(date) {
   };
   return new Date(date).toLocaleDateString('en-US', options);
 }
-// === CUSTOM KILL MESSAGE PHRASES ===
+// === FRASES PERSONALIZADAS DE ABATE ===
 const KILL_PHRASES = [
-  "**{killer}** erased **{victim}** from existence with **{weapon}**{distance}.",
-  "**{killer}** sent **{victim}** back to the lobby with **{weapon}**{distance}.",
-  "**{killer}** made **{victim}** regret spawning with **{weapon}**{distance}.",
-  "**{killer}** turned **{victim}** into a memory with **{weapon}**{distance}.",
-  "**{victim}** couldn't handle **{killer}**'s smoke from **{weapon}**{distance}.",
-  "**{killer}** clapped **{victim}** out of the game with **{weapon}**{distance}.",
-  "**{victim}** caught these hands from **{killer}** via **{weapon}**{distance}.",
-  "**{killer}** gave **{victim}** a one-way ticket to respawn with **{weapon}**{distance}.",
-  "**{killer}** ruined **{victim}**'s whole career with **{weapon}**{distance}.",
-  "**{victim}** got humbled by **{killer}** using **{weapon}**{distance}.",
-  "**{killer}** said goodnight to **{victim}** with **{weapon}**{distance}.",
-  "**{killer}** packed up **{victim}**'s dreams using **{weapon}**{distance}.",
-  "**{killer}** folded **{victim}** like a lawn chair with **{weapon}**{distance}.",
-  "**{victim}** got processed by **{killer}** via **{weapon}**{distance}.",
-  "**{killer}** made **{victim}** vanish using **{weapon}**{distance}.",
-  "**{killer}** slapped **{victim}** into next week with **{weapon}**{distance}.",
-  "**{victim}** thought they had a chance against **{killer}**'s **{weapon}**{distance}.",
-  "**{killer}** dropped **{victim}** like bad loot using **{weapon}**{distance}.",
-  "**{killer}** treated **{victim}** like target practice with **{weapon}**{distance}.",
-  "**{killer}** gave **{victim}** a free trip to spectate via **{weapon}**{distance}.",
-  "**{victim}** got cooked by **{killer}** with **{weapon}**{distance}.",
-  "**{victim}** didn't survive **{killer}**'s smoke test from **{weapon}**{distance}.",
-  "**{killer}** ran circles around **{victim}** with **{weapon}**{distance}.",
-  "**{killer}** checked **{victim}** straight off the server with **{weapon}**{distance}.",
-  "**{killer}** showed **{victim}** the true meaning of pain using **{weapon}**{distance}."
+  "**{killer}** apagou **{victim}** da existência com **{weapon}**{distance}.",
+  "**{killer}** mandou **{victim}** de volta pro lobby com **{weapon}**{distance}.",
+  "**{killer}** fez **{victim}** se arrepender de ter nascido com **{weapon}**{distance}.",
+  "**{killer}** transformou **{victim}** em memória com **{weapon}**{distance}.",
+  "**{victim}** não aguentou a pressão de **{killer}** com **{weapon}**{distance}.",
+  "**{killer}** eliminou **{victim}** do jogo com **{weapon}**{distance}.",
+  "**{victim}** levou das mãos de **{killer}** via **{weapon}**{distance}.",
+  "**{killer}** deu a **{victim}** uma passagem só de ida pro respawn com **{weapon}**{distance}.",
+  "**{killer}** arruinou toda a carreira de **{victim}** com **{weapon}**{distance}.",
+  "**{victim}** foi humilhado por **{killer}** usando **{weapon}**{distance}.",
+  "**{killer}** deu boa noite para **{victim}** com **{weapon}**{distance}.",
+  "**{killer}** destruiu os sonhos de **{victim}** usando **{weapon}**{distance}.",
+  "**{killer}** dobrou **{victim}** como uma cadeira de praia com **{weapon}**{distance}.",
+  "**{victim}** foi processado por **{killer}** via **{weapon}**{distance}.",
+  "**{killer}** fez **{victim}** desaparecer usando **{weapon}**{distance}.",
+  "**{killer}** mandou **{victim}** pra semana que vem com **{weapon}**{distance}.",
+  "**{victim}** achou que tinha chance contra a **{weapon}** de **{killer}**{distance}.",
+  "**{killer}** derrubou **{victim}** como loot ruim usando **{weapon}**{distance}.",
+  "**{killer}** tratou **{victim}** como alvo de treino com **{weapon}**{distance}.",
+  "**{killer}** deu a **{victim}** uma viagem grátis pro modo espectador via **{weapon}**{distance}.",
+  "**{victim}** foi assado por **{killer}** com **{weapon}**{distance}.",
+  "**{victim}** não sobreviveu ao teste de fogo de **{killer}** com **{weapon}**{distance}.",
+  "**{killer}** deu voltas em **{victim}** com **{weapon}**{distance}.",
+  "**{killer}** expulsou **{victim}** direto do servidor com **{weapon}**{distance}.",
+  "**{killer}** mostrou a **{victim}** o verdadeiro significado da dor usando **{weapon}**{distance}."
 ];
 
-// === CUSTOM LONGSHOT MESSAGE PHRASES ===
+// === FRASES PERSONALIZADAS DE LONGSHOT ===
 const LONGSHOT_PHRASES = [
-  "**{killer}** hit **{victim}** so hard from across the map with **{weapon}** ({distance}m), they had time to think about life choices.",
-  "**{victim}** got sniped by **{killer}** with **{weapon}** ({distance}m) before they even heard the shot.",
-  "**{killer}** introduced **{victim}** to a bullet from **{weapon}**... from downtown ({distance}m).",
-  "**{victim}** got deleted by **{killer}** from a postal code away with **{weapon}** ({distance}m).",
-  "**{killer}** sent a care package straight to **{victim}**'s forehead with **{weapon}** ({distance}m).",
-  "**{victim}** had no idea **{killer}** was already writing their obituary with **{weapon}** ({distance}m).",
-  "**{killer}** said 'hold my beer' and hit **{victim}** from orbit with **{weapon}** ({distance}m).",
-  "**{victim}** just learned what it feels like to lose a 1v1 they didn't know they were in against **{killer}**'s **{weapon}** ({distance}m).",
-  "**{killer}** lined up the shot with **{weapon}**, said a prayer, and ended **{victim}**'s journey from ({distance}m).",
-  "**{victim}** should've zigged when they zagged — **{killer}** was waiting with **{weapon}** ({distance}m)."
+  "**{killer}** acertou **{victim}** tão forte do outro lado do mapa com **{weapon}** ({distance}m), que deu tempo de repensar suas escolhas de vida.",
+  "**{victim}** foi snipado por **{killer}** com **{weapon}** ({distance}m) antes mesmo de ouvir o tiro.",
+  "**{killer}** apresentou **{victim}** a uma bala de **{weapon}**... do outro lado da cidade ({distance}m).",
+  "**{victim}** foi deletado por **{killer}** de um CEP de distância com **{weapon}** ({distance}m).",
+  "**{killer}** enviou um pacote direto na testa de **{victim}** com **{weapon}** ({distance}m).",
+  "**{victim}** não fazia ideia que **{killer}** já estava escrevendo seu obituário com **{weapon}** ({distance}m).",
+  "**{killer}** disse 'segura minha cerveja' e acertou **{victim}** da órbita com **{weapon}** ({distance}m).",
+  "**{victim}** acabou de aprender como é perder um 1v1 que nem sabia que estava acontecendo contra a **{weapon}** de **{killer}** ({distance}m).",
+  "**{killer}** alinhou o tiro com **{weapon}**, fez uma prece, e terminou a jornada de **{victim}** de ({distance}m).",
+  "**{victim}** deveria ter ido pra esquerda quando foi pra direita — **{killer}** estava esperando com **{weapon}** ({distance}m)."
 ];
 
-// === CUSTOM SUICIDE MESSAGE PHRASES ===
+// === FRASES PERSONALIZADAS DE SUICÍDIO ===
 const SUICIDE_PHRASES = [
-  "**{victim}** couldn't handle the pressure.",
-  "**{victim}** folded like a lawn chair.",
-  "**{victim}** disappeared without a trace.",
-  "**{victim}** tapped out early.",
-  "**{victim}** lagged out of existence.",
-  "**{victim}** ran out of luck.",
-  "**{victim}** hit the wrong key.",
-  "**{victim}** just gave up, really.",
-  "**{victim}** was here... briefly.",
-  "**{victim}** didn't stand a chance.",
-  "**{victim}** logged off emotionally first.",
-  "**{victim}** rage quit without the quit.",
-  "**{victim}** blinked and missed it.",
-  "**{victim}** entered spectator mode.",
-  "**{victim}** took an unexpected L.",
-  "**{victim}** learned the hard way.",
-  "**{victim}** caught a permanent timeout.",
-  "**{victim}** met their match — badly.",
-  "**{victim}** fumbled the bag.",
-  "**{victim}** packed it up early.",
-  "**{victim}** unplugged themselves.",
-  "**{victim}** left the chat.",
-  "**{victim}** went AFK forever.",
-  "**{victim}** checked out of the lobby.",
-  "**{victim}** ran out of options.",
-  "**{victim}** hit send on the wrong move.",
-  "**{victim}** made one mistake too many.",
-  "**{victim}** folded under pressure.",
-  "**{victim}** clocked out.",
-  "**{victim}** slipped through the cracks.",
-  "**{victim}** went down bad.",
-  "**{victim}** had one job.",
-  "**{victim}** took the shortcut out.",
-  "**{victim}** lost the plot.",
-  "**{victim}** misread the assignment.",
-  "**{victim}** found the exit early.",
-  "**{victim}** went out sad.",
-  "**{victim}** got left behind.",
-  "**{victim}** retired mid-match.",
-  "**{victim}** lost track of reality.",
-  "**{victim}** hit the brakes too late.",
-  "**{victim}** signed off.",
-  "**{victim}** was their own downfall.",
-  "**{victim}** ran headfirst into defeat.",
-  "**{victim}** embraced the void.",
-  "**{victim}** forgot the basics.",
-  "**{victim}** got benched by life.",
-  "**{victim}** got speedran by reality.",
-  "**{victim}** dropped the ball.",
-  "**{victim}** faced reality — and lost."
+  "**{victim}** não aguentou a pressão.",
+  "**{victim}** dobrou como uma cadeira de praia.",
+  "**{victim}** desapareceu sem deixar rastros.",
+  "**{victim}** desistiu cedo demais.",
+  "**{victim}** lagou pra fora da existência.",
+  "**{victim}** ficou sem sorte.",
+  "**{victim}** apertou a tecla errada.",
+  "**{victim}** simplesmente desistiu.",
+  "**{victim}** esteve aqui... brevemente.",
+  "**{victim}** não teve chance.",
+  "**{victim}** desconectou emocionalmente primeiro.",
+  "**{victim}** rage quit sem o quit.",
+  "**{victim}** piscou e perdeu tudo.",
+  "**{victim}** entrou em modo espectador.",
+  "**{victim}** levou um L inesperado.",
+  "**{victim}** aprendeu da maneira difícil.",
+  "**{victim}** recebeu um timeout permanente.",
+  "**{victim}** encontrou seu páreo — mal.",
+  "**{victim}** deixou cair a bolsa.",
+  "**{victim}** empacotou cedo.",
+  "**{victim}** se desplugou sozinho.",
+  "**{victim}** saiu do chat.",
+  "**{victim}** ficou AFK pra sempre.",
+  "**{victim}** saiu do lobby.",
+  "**{victim}** ficou sem opções.",
+  "**{victim}** mandou a jogada errada.",
+  "**{victim}** cometeu um erro a mais.",
+  "**{victim}** dobrou sob pressão.",
+  "**{victim}** bateu o ponto.",
+  "**{victim}** escorregou pelas rachaduras.",
+  "**{victim}** caiu feio.",
+  "**{victim}** tinha um trabalho.",
+  "**{victim}** pegou o atalho pra saída.",
+  "**{victim}** perdeu o rumo.",
+  "**{victim}** entendeu errado a missão.",
+  "**{victim}** achou a saída cedo.",
+  "**{victim}** saiu triste.",
+  "**{victim}** foi deixado pra trás.",
+  "**{victim}** se aposentou no meio da partida.",
+  "**{victim}** perdeu a noção da realidade.",
+  "**{victim}** freou tarde demais.",
+  "**{victim}** deslogou.",
+  "**{victim}** foi sua própria queda.",
+  "**{victim}** correu de cabeça pra derrota.",
+  "**{victim}** abraçou o vazio.",
+  "**{victim}** esqueceu o básico.",
+  "**{victim}** foi substituído pela vida.",
+  "**{victim}** foi speedrunado pela realidade.",
+  "**{victim}** deixou a bola cair.",
+  "**{victim}** encarou a realidade — e perdeu."
 ];
 
-// === KILLSTREAK MILESTONES ===
+// === MARCOS DE SEQUÊNCIA DE ABATES ===
 const KILLSTREAK_MILESTONES = [
-  { count: 3, message: "is on a killing spree!" },
-  { count: 5, message: "is on a rampage!" },
-  { count: 7, message: "is dominating!" },
-  { count: 10, message: "is unstoppable!" },
-  { count: 15, message: "is godlike!" },
-  { count: 20, message: "is legendary!" },
-  { count: 25, message: "is on a massacre!" },
-  { count: 30, message: "has gone nuclear!" }
+  { count: 3, message: "está em uma onda de abates!" },
+  { count: 5, message: "está em um massacre!" },
+  { count: 7, message: "está dominando!" },
+  { count: 10, message: "está imparável!" },
+  { count: 15, message: "está divino!" },
+  { count: 20, message: "está lendário!" },
+  { count: 25, message: "está em um genocídio!" },
+  { count: 30, message: "está nuclear!" }
 ];
 
-// === WEAPON EMOJIS AND ICONS ===
+// === EMOJIS E ÍCONES DE ARMAS ===
 const weaponEmojis = {
-  // Knives
+  // Facas
   "Improvised Knife": "🔪",
   "Folding Knife": "🔪",
   "Combat Knife": "🔪",
 
-  // Axes
+  // Machados
   "Improvised Axe": "🪓",
   "Woodcutter's Axe": "🪓",
   "Fire Axe": "🪓",
 
-  // Pistols
+  // Pistolas
   "IZH-70": "🔫",
   "TTk": "🔫",
   "F-57": "🔫",
   "C1911": "🔫",
   "berta_m9": "🔫",
 
-  // Shotguns
+  // Espingardas
   "Sawed-Off Shotgun": "💥",
   "IZH-43": "💥",
   "M133": "💥",
@@ -541,7 +549,7 @@ const weaponEmojis = {
   "VSD": "🎯",
   "M99": "🎯",
 
-  // Explosives
+  // Explosivos
   "GRM-40": "💣",
   "Tripwire F-10": "🧨",
   "Tripwire R-5": "🧨",
@@ -551,13 +559,13 @@ const weaponEmojis = {
   "F-10": "🧨",
   "R-5": "🧨",
 
-  // Land Vehicles
+  // Veículos Terrestres
   "land_vehicle": "🚗"
 };
 
-// Weapon icon URLs for embed thumbnails
+// URLs de ícones de armas para miniaturas de embeds
 const weaponIconURLs = {
-  // Default weapon categories
+  // Categorias de armas padrão
   "default": "https://i.imgur.com/6guD1s3.png",
   "knife": "https://i.imgur.com/6guD1s3.png",
   "axe": "https://i.imgur.com/6guD1s3.png",
@@ -570,7 +578,7 @@ const weaponIconURLs = {
   "vehicle": "https://i.imgur.com/6guD1s3.png"
 };
 
-// Get weapon icon URL based on weapon name
+// Obtém URL do ícone da arma com base no nome da arma
 function getWeaponIconURL(weapon) {
   const weaponLower = weapon.toLowerCase();
   
@@ -587,7 +595,7 @@ function getWeaponIconURL(weapon) {
   return weaponIconURLs.default;
 }
 
-// Get the next kill phrase with rotation
+// Obtém a próxima frase de abate com rotação
 function getNextKillPhrase() {
   const phrase = KILL_PHRASES[messageIndexes.killPhraseIndex];
   messageIndexes.killPhraseIndex = (messageIndexes.killPhraseIndex + 1) % KILL_PHRASES.length;
@@ -595,7 +603,7 @@ function getNextKillPhrase() {
   return phrase;
 }
 
-// Get the next longshot phrase with rotation
+// Obtém a próxima frase de longshot com rotação
 function getNextLongshotPhrase() {
   const phrase = LONGSHOT_PHRASES[messageIndexes.longshotPhraseIndex];
   messageIndexes.longshotPhraseIndex = (messageIndexes.longshotPhraseIndex + 1) % LONGSHOT_PHRASES.length;
@@ -603,7 +611,7 @@ function getNextLongshotPhrase() {
   return phrase;
 }
 
-// Get the next suicide phrase with rotation
+// Obtém a próxima frase de suicídio com rotação
 function getNextSuicidePhrase() {
   const phrase = SUICIDE_PHRASES[messageIndexes.suicidePhraseIndex];
   messageIndexes.suicidePhraseIndex = (messageIndexes.suicidePhraseIndex + 1) % SUICIDE_PHRASES.length;
@@ -612,54 +620,100 @@ function getNextSuicidePhrase() {
 }
 // === DATA MANAGEMENT FUNCTIONS ===
 
-// Load seen lines from file
+/**
+ * Atomic file write with backup to prevent data corruption
+ * Writes to a temporary file first, then renames to the target file
+ * This ensures the original file is not corrupted if the write fails
+ */
+function atomicWriteFile(filePath, data) {
+  const tempPath = `${filePath}.tmp`;
+  const backupPath = `${filePath}.backup`;
+  
+  try {
+    // Write to temporary file first
+    fs.writeFileSync(tempPath, data, 'utf8');
+    
+    // If original file exists, create a backup
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.copyFileSync(filePath, backupPath);
+      } catch (backupErr) {
+        console.warn(`⚠️ Não foi possível criar backup para ${filePath}: ${backupErr.message}`);
+      }
+    }
+    
+    // Renomeia atomicamente arquivo temp para arquivo alvo
+    fs.renameSync(tempPath, filePath);
+    
+    return true;
+  } catch (err) {
+    console.error(`❌ Gravação atômica falhou para ${filePath}:`, err.message);
+    
+    // Limpa arquivo temporário se existir
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch (cleanupErr) {
+      console.error(`❌ Falha ao limpar arquivo temporário:`, cleanupErr.message);
+    }
+    
+    return false;
+  }
+}
+
+// Carrega linhas vistas do arquivo
 function loadSeenLines() {
   try {
     const data = fs.readFileSync(MEMORY_FILE);
     return new Set(JSON.parse(data));
   } catch {
-    console.log('ℹ️ No memory file found. Starting fresh.');
+    console.log('ℹ️ Nenhum arquivo de memória encontrado. Começando do zero.');
     return new Set();
   }
 }
 
-// Save seen lines to file
+// Salva linhas vistas no arquivo
 function saveSeenLines(seenLines) {
   try {
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify([...seenLines]));
-    console.log('✅ Saved seen lines.');
+    const success = atomicWriteFile(MEMORY_FILE, JSON.stringify([...seenLines]));
+    if (success) {
+      console.log('✅ Linhas vistas salvas.');
+    }
   } catch (err) {
-    console.error('❌ Failed to save seen lines:', err.message);
+    console.error('❌ Falha ao salvar linhas vistas:', err.message);
   }
 }
 
-// Legacy leaderboard functions - keeping for backward compatibility
+// Funções de leaderboard legadas - mantendo para compatibilidade retroativa
 function loadLeaderboards() {
   try {
     const data = fs.readFileSync(LEADERBOARD_FILE);
     return JSON.parse(data);
   } catch {
-    console.log('ℹ️ No leaderboard file found. Starting fresh.');
+    console.log('ℹ️ Nenhum arquivo de leaderboard encontrado. Começando do zero.');
     return {};
   }
 }
 
 function saveLeaderboards(leaderboard) {
   try {
-    fs.writeFileSync(LEADERBOARD_FILE, JSON.stringify(leaderboard));
-    console.log('✅ Saved leaderboards.');
+    const success = atomicWriteFile(LEADERBOARD_FILE, JSON.stringify(leaderboard));
+    if (success) {
+      console.log('✅ Leaderboards salvos.');
+    }
   } catch (err) {
-    console.error('❌ Failed to save leaderboards:', err.message);
+    console.error('❌ Falha ao salvar leaderboards:', err.message);
   }
 }
 
-// Message indexes tracking for phrase rotation
+// Rastreamento de índices de mensagens para rotação de frases
 function loadMessageIndexes() {
   try {
     const data = fs.readFileSync(MESSAGE_INDEXES_FILE);
     return JSON.parse(data);
   } catch {
-    console.log('ℹ️ No message indexes file found. Starting fresh.');
+    console.log('ℹ️ Nenhum arquivo de índices de mensagem encontrado. Começando do zero.');
     return {
       killPhraseIndex: 0,
       longshotPhraseIndex: 0,
@@ -670,19 +724,22 @@ function loadMessageIndexes() {
 
 function saveMessageIndexes(indexes) {
   try {
-    fs.writeFileSync(MESSAGE_INDEXES_FILE, JSON.stringify(indexes));
+    const success = atomicWriteFile(MESSAGE_INDEXES_FILE, JSON.stringify(indexes));
+    if (!success) {
+      console.error('❌ Falha ao salvar índices de mensagem');
+    }
   } catch (err) {
-    console.error('❌ Failed to save message indexes:', err.message);
+    console.error('❌ Falha ao salvar índices de mensagem:', err.message);
   }
 }
 
-// Player stats management
+// Gerenciamento de estatísticas de jogadores
 function loadPlayerStats() {
   try {
     const data = fs.readFileSync(STATS_FILE);
     return JSON.parse(data);
   } catch {
-    console.log('ℹ️ No player stats file found. Starting fresh.');
+    console.log('ℹ️ Nenhum arquivo de estatísticas de jogadores encontrado. Começando do zero.');
     return {
       all_time: {},
       daily: {},
@@ -694,20 +751,22 @@ function loadPlayerStats() {
 
 function savePlayerStats(stats) {
   try {
-    fs.writeFileSync(STATS_FILE, JSON.stringify(stats));
-    console.log('✅ Saved player stats.');
+    const success = atomicWriteFile(STATS_FILE, JSON.stringify(stats, null, 2));
+    if (success) {
+      console.log('✅ Estatísticas de jogadores salvas.');
+    }
   } catch (err) {
-    console.error('❌ Failed to save player stats:', err.message);
+    console.error('❌ Falha ao salvar estatísticas de jogadores:', err.message);
   }
 }
 
-// Longshots tracking
+// Rastreamento de longshots
 function loadLongshots() {
   try {
     const data = fs.readFileSync(LONGSHOTS_FILE);
     return JSON.parse(data);
   } catch {
-    console.log('ℹ️ No longshots file found. Starting fresh.');
+    console.log('ℹ️ Nenhum arquivo de longshots encontrado. Começando do zero.');
     return {
       all_time: [],
       daily: {},
@@ -719,46 +778,50 @@ function loadLongshots() {
 
 function saveLongshots(longshots) {
   try {
-    fs.writeFileSync(LONGSHOTS_FILE, JSON.stringify(longshots));
-    console.log('✅ Saved longshots.');
+    const success = atomicWriteFile(LONGSHOTS_FILE, JSON.stringify(longshots, null, 2));
+    if (success) {
+      console.log('✅ Longshots salvos.');
+    }
   } catch (err) {
-    console.error('❌ Failed to save longshots:', err.message);
+    console.error('❌ Falha ao salvar longshots:', err.message);
   }
 }
 
-// Killstreaks tracking
+// Rastreamento de sequências de abates
 function loadKillstreaks() {
   try {
     const data = fs.readFileSync(KILLSTREAKS_FILE);
     const loadedStreaks = JSON.parse(data);
-    console.log('✅ Loaded killstreaks from file.');
+    console.log('✅ Sequências de abates carregadas do arquivo.');
     return loadedStreaks;
   } catch (err) {
-    console.log('ℹ️ No killstreaks file found or error reading. Starting fresh.');
+    console.log('ℹ️ Nenhum arquivo de sequências de abates encontrado ou erro ao ler. Começando do zero.');
     return {};
   }
 }
 
 function saveKillstreaks(killstreaks) {
   try {
-    fs.writeFileSync(KILLSTREAKS_FILE, JSON.stringify(killstreaks));
-    console.log('✅ Saved killstreaks to file.');
+    const success = atomicWriteFile(KILLSTREAKS_FILE, JSON.stringify(killstreaks, null, 2));
+    if (success) {
+      console.log('✅ Sequências de abates salvas no arquivo.');
+    }
   } catch (err) {
-    console.error('❌ Failed to save killstreaks:', err.message);
+    console.error('❌ Falha ao salvar sequências de abates:', err.message);
   }
 }
 
-// === TIME PERIOD HELPERS ===
+// === AUXILIARES DE PERÍODO DE TEMPO ===
 function getTimeIdentifiers() {
   const now = new Date();
   
-  // YYYY-MM-DD format for daily
+  // Formato YYYY-MM-DD para diário
   const daily = now.toISOString().split('T')[0];
   
-  // YYYY-MM format for monthly
+  // Formato YYYY-MM para mensal
   const monthly = daily.substring(0, 7);
   
-  // YYYY-Wxx format for ISO week
+  // Formato YYYY-Wxx para semana ISO
   const startOfYear = new Date(now.getFullYear(), 0, 1);
   const pastDaysOfYear = (now - startOfYear) / 86400000;
   const weekNumber = Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
@@ -766,50 +829,51 @@ function getTimeIdentifiers() {
   
   return { daily, weekly, monthly };
 }
-// Add this before updatePlayerStats function
+// Adiciona isto antes da função updatePlayerStats
 function ensurePlayerRecord(periodData, playerName, serverName) {
   if (!periodData[playerName]) {
     periodData[playerName] = { 
       kills: 0, 
       deaths: 0,
-      envDeaths: 0, // New property to track environmental deaths
+      envDeaths: 0, // Nova propriedade para rastrear mortes ambientais
       kd: 0,
       servers: {}
     };
   }
   
-  // Add server tracking
+  // Adiciona rastreamento de servidor
   if (serverName && !periodData[playerName].servers[serverName]) {
     periodData[playerName].servers[serverName] = {
       kills: 0,
       deaths: 0,
-      envDeaths: 0 // New property for server-specific environmental deaths
+      envDeaths: 0 // Nova propriedade para mortes ambientais específicas do servidor
     };
   }
 }
 function updateKDRatio(player) {
   const { daily, weekly, monthly } = getTimeIdentifiers();
   
-  // Helper function to update KD in a specific period
+  // Função auxiliar para atualizar K/D em um período específico
   function updateKDForPeriod(periodData) {
     if (periodData && periodData[player]) {
       const stats = periodData[player];
-      // Only use player-caused deaths for K/D (not envDeaths)
-      stats.kd = stats.deaths === 0 ? stats.kills : parseFloat((stats.kills / stats.deaths).toFixed(2));
+      // Usa apenas mortes causadas por jogadores para K/D (não envDeaths)
+      // Quando deaths é 0, K/D é exibido como kills (convenção comum para K/D infinito)
+      stats.kd = stats.deaths === 0 ? parseFloat(stats.kills.toFixed(2)) : parseFloat((stats.kills / stats.deaths).toFixed(2));
     }
   }
   
-  // Update KD in all periods
+  // Atualiza K/D em todos os períodos
   updateKDForPeriod(playerStats.all_time);
   updateKDForPeriod(playerStats.daily[daily]);
   updateKDForPeriod(playerStats.weekly[weekly]);
   updateKDForPeriod(playerStats.monthly[monthly]);
 }
-// === PLAYER STATS TRACKING ===
+// === RASTREAMENTO DE ESTATÍSTICAS DE JOGADORES ===
 function updatePlayerStats(killer, victim, distance, cause, timestamp, serverName) {
   const { daily, weekly, monthly } = getTimeIdentifiers();
   
-  // Initialize data structures if needed
+  // Inicializa estruturas de dados se necessário
   if (!playerStats.all_time) playerStats.all_time = {};
   if (!playerStats.daily) playerStats.daily = {};
   if (!playerStats.weekly) playerStats.weekly = {};
@@ -819,37 +883,37 @@ function updatePlayerStats(killer, victim, distance, cause, timestamp, serverNam
   if (!playerStats.weekly[weekly]) playerStats.weekly[weekly] = {};
   if (!playerStats.monthly[monthly]) playerStats.monthly[monthly] = {};
   
-  // Check if this is an environmental death (suicide, falling, etc.)
+  // Verifica se é uma morte ambiental (suicídio, queda, etc.)
   const causeLower = cause.toLowerCase();
   const isEnvironmentalDeath = killer === victim || 
                               causeLower.includes('suicide') || 
                               causeLower.includes('falling') || 
                               causeLower.includes('relocation');
   
-  // Update kill stats (if not environmental death)
+  // Atualiza estatísticas de abates (se não for morte ambiental)
   if (!isEnvironmentalDeath) {
-    // All time
+    // Todos os tempos
     ensurePlayerRecord(playerStats.all_time, killer, serverName);
     playerStats.all_time[killer].kills++;
     if (serverName) {
       playerStats.all_time[killer].servers[serverName].kills++;
     }
     
-    // Daily
+    // Diário
     ensurePlayerRecord(playerStats.daily[daily], killer, serverName);
     playerStats.daily[daily][killer].kills++;
     if (serverName) {
       playerStats.daily[daily][killer].servers[serverName].kills++;
     }
     
-    // Weekly
+    // Semanal
     ensurePlayerRecord(playerStats.weekly[weekly], killer, serverName);
     playerStats.weekly[weekly][killer].kills++;
     if (serverName) {
       playerStats.weekly[weekly][killer].servers[serverName].kills++;
     }
     
-    // Monthly
+    // Mensal
     ensurePlayerRecord(playerStats.monthly[monthly], killer, serverName);
     playerStats.monthly[monthly][killer].kills++;
     if (serverName) {
@@ -857,20 +921,20 @@ function updatePlayerStats(killer, victim, distance, cause, timestamp, serverNam
     }
   }
   
-  // Update death stats for victim
+  // Atualiza estatísticas de mortes para a vítima
   ensurePlayerRecord(playerStats.all_time, victim, serverName);
   ensurePlayerRecord(playerStats.daily[daily], victim, serverName);
   ensurePlayerRecord(playerStats.weekly[weekly], victim, serverName);
   ensurePlayerRecord(playerStats.monthly[monthly], victim, serverName);
   
   if (isEnvironmentalDeath) {
-    // Record as environmental death (all periods)
+    // Registra como morte ambiental (todos os períodos)
     playerStats.all_time[victim].envDeaths++;
     playerStats.daily[daily][victim].envDeaths++;
     playerStats.weekly[weekly][victim].envDeaths++;
     playerStats.monthly[monthly][victim].envDeaths++;
     
-    // Server specific
+    // Específico do servidor
     if (serverName) {
       playerStats.all_time[victim].servers[serverName].envDeaths++;
       playerStats.daily[daily][victim].servers[serverName].envDeaths++;
@@ -878,13 +942,13 @@ function updatePlayerStats(killer, victim, distance, cause, timestamp, serverNam
       playerStats.monthly[monthly][victim].servers[serverName].envDeaths++;
     }
   } else {
-    // Record as player-caused death (all periods)
+    // Registra como morte causada por jogador (todos os períodos)
     playerStats.all_time[victim].deaths++;
     playerStats.daily[daily][victim].deaths++;
     playerStats.weekly[weekly][victim].deaths++;
     playerStats.monthly[monthly][victim].deaths++;
     
-    // Server specific
+    // Específico do servidor
     if (serverName) {
       playerStats.all_time[victim].servers[serverName].deaths++;
       playerStats.daily[daily][victim].servers[serverName].deaths++;
@@ -893,20 +957,20 @@ function updatePlayerStats(killer, victim, distance, cause, timestamp, serverNam
     }
   }
   
-  // Calculate K/D ratios
+  // Calcula razões K/D
   updateKDRatio(killer);
   updateKDRatio(victim);
   
-  // Track longshot if applicable (over 200m)
+  // Rastreia longshot se aplicável (acima de 200m)
   if (parseInt(distance) >= 200 && !isEnvironmentalDeath) {
     trackLongshot(killer, victim, parseInt(distance), cause, timestamp, serverName);
   }
 }
-// === LONGSHOTS TRACKING ===
+// === RASTREAMENTO DE LONGSHOTS ===
 function trackLongshot(killer, victim, distance, weapon, timestamp, serverName) {
   const { daily, weekly, monthly } = getTimeIdentifiers();
   
-  // Initialize longshots structure if needed
+  // Inicializa estrutura de longshots se necessário
   if (!longshots.all_time) longshots.all_time = [];
   if (!longshots.daily) longshots.daily = {};
   if (!longshots.weekly) longshots.weekly = {};
@@ -925,67 +989,84 @@ function trackLongshot(killer, victim, distance, weapon, timestamp, serverName) 
     serverName
   };
   
-  // Add to all time longshots
-  longshots.all_time.push(longshotEntry);
+  // Cria uma chave única para prevenir longshots duplicados
+  const longshotKey = `${killer}|${victim}|${distance}|${weapon}|${timestamp}`;
   
-  // Add to daily longshots
-  longshots.daily[daily].push(longshotEntry);
+  // Verifica se este longshot exato já existe em all_time
+  const isDuplicate = longshots.all_time.some(shot => 
+    shot.killer === killer && 
+    shot.victim === victim && 
+    shot.distance === distance && 
+    shot.weapon === weapon &&
+    shot.timestamp === longshotEntry.timestamp
+  );
   
-  // Add to weekly longshots
-  longshots.weekly[weekly].push(longshotEntry);
-  
-  // Add to monthly longshots
-  longshots.monthly[monthly].push(longshotEntry);
-  
-  // Sort all longshot arrays by distance (descending)
-  longshots.all_time.sort((a, b) => b.distance - a.distance);
-  longshots.daily[daily].sort((a, b) => b.distance - a.distance);
-  longshots.weekly[weekly].sort((a, b) => b.distance - a.distance);
-  longshots.monthly[monthly].sort((a, b) => b.distance - a.distance);
-  
-  // Keep only top 100 longshots for memory efficiency
-  const MAX_LONGSHOTS = 100;
-  if (longshots.all_time.length > MAX_LONGSHOTS) longshots.all_time.length = MAX_LONGSHOTS;
-  if (longshots.daily[daily].length > MAX_LONGSHOTS) longshots.daily[daily].length = MAX_LONGSHOTS;
-  if (longshots.weekly[weekly].length > MAX_LONGSHOTS) longshots.weekly[weekly].length = MAX_LONGSHOTS;
-  if (longshots.monthly[monthly].length > MAX_LONGSHOTS) longshots.monthly[monthly].length = MAX_LONGSHOTS;
+  // Adiciona apenas se não for duplicado
+  if (!isDuplicate) {
+    // Adiciona aos longshots de todos os tempos
+    longshots.all_time.push(longshotEntry);
+    
+    // Adiciona aos longshots diários
+    longshots.daily[daily].push(longshotEntry);
+    
+    // Adiciona aos longshots semanais
+    longshots.weekly[weekly].push(longshotEntry);
+    
+    // Adiciona aos longshots mensais
+    longshots.monthly[monthly].push(longshotEntry);
+    
+    // Ordena todos os arrays de longshots por distância (decrescente)
+    longshots.all_time.sort((a, b) => b.distance - a.distance);
+    longshots.daily[daily].sort((a, b) => b.distance - a.distance);
+    longshots.weekly[weekly].sort((a, b) => b.distance - a.distance);
+    longshots.monthly[monthly].sort((a, b) => b.distance - a.distance);
+    
+    // Mantém apenas os 100 melhores longshots para eficiência de memória
+    const MAX_LONGSHOTS = 100;
+    if (longshots.all_time.length > MAX_LONGSHOTS) longshots.all_time.length = MAX_LONGSHOTS;
+    if (longshots.daily[daily].length > MAX_LONGSHOTS) longshots.daily[daily].length = MAX_LONGSHOTS;
+    if (longshots.weekly[weekly].length > MAX_LONGSHOTS) longshots.weekly[weekly].length = MAX_LONGSHOTS;
+    if (longshots.monthly[monthly].length > MAX_LONGSHOTS) longshots.monthly[monthly].length = MAX_LONGSHOTS;
+  } else {
+    console.log(`⚠️ Ignorando longshot duplicado: ${killer} → ${victim} @ ${distance}m`);
+  }
 }
 
-// === KILLSTREAK TRACKING ===
+// === RASTREAMENTO DE SEQUÊNCIAS DE ABATES ===
 function updateKillstreak(killer, victim, serverName, config) {
-  // Initialize player in killstreaks object if not present
+  // Inicializa jogador no objeto killstreaks se não presente
   if (!activeKillstreaks[killer]) {
     activeKillstreaks[killer] = {
       count: 0,
-      bestStreak: 0, // Add a best streak tracker
+      bestStreak: 0, // Adiciona rastreador de melhor sequência
       lastKill: new Date().toISOString(),
       servers: {}
     };
   }
   
-  // Initialize server-specific tracking
+  // Inicializa rastreamento específico do servidor
   if (serverName && !activeKillstreaks[killer].servers[serverName]) {
     activeKillstreaks[killer].servers[serverName] = {
       count: 0,
-      bestStreak: 0, // Add a best streak tracker for server
+      bestStreak: 0, // Adiciona rastreador de melhor sequência para servidor
       lastKill: new Date().toISOString()
     };
   }
   
-  // Reset killstreak if player was killed
+  // Reseta killstreak se jogador foi morto
   if (activeKillstreaks[victim]) {
-    // Check if victim had a significant killstreak before dying (3 or more)
+    // Verifica se vítima tinha uma killstreak significativa antes de morrer (3 ou mais)
     const victimStreak = activeKillstreaks[victim].count;
     
     if (victimStreak >= 3) {
-      // Get highlight info for the victim
+      // Obtém informações de destaque para a vítima
       const victimHighlight = getPlayerHighlight(victim);
       
       const endStreakEmbed = {
-        title: "⚡ Killstreak Ended!",
-        color: parseInt("DD3333", 16), // Red color for ended streaks
-        description: `**${killer}** ended **${victim}'s** killstreak of **${victimStreak}**!`,
-        // Use custom thumbnail if available
+        title: "⚡ Sequência de Abates Terminada!",
+        color: parseInt("DD3333", 16), // Cor vermelha para sequências terminadas
+        description: `**${killer}** terminou a sequência de **${victim}** de **${victimStreak}** abates!`,
+        // Usa miniatura personalizada se disponível
         thumbnail: { 
           url: victimHighlight && victimHighlight.thumbnailUrl ? 
             victimHighlight.thumbnailUrl : 
@@ -1001,30 +1082,30 @@ function updateKillstreak(killer, victim, serverName, config) {
       sendEmbedToDiscord(config.killWebhook, endStreakEmbed);
     }
     
-    // Reset victim's killstreak
+    // Reseta killstreak da vítima
     activeKillstreaks[victim].count = 0;
     
-    // Reset server-specific streak
+    // Reseta sequência específica do servidor
     if (serverName && activeKillstreaks[victim].servers[serverName]) {
       activeKillstreaks[victim].servers[serverName].count = 0;
     }
   }
   
-  // Increment killer's streak
+  // Incrementa sequência do assassino
   activeKillstreaks[killer].count++;
   activeKillstreaks[killer].lastKill = new Date().toISOString();
   
-  // Update best streak if current streak is higher
+  // Atualiza melhor sequência se sequência atual for maior
   if (activeKillstreaks[killer].count > activeKillstreaks[killer].bestStreak) {
     activeKillstreaks[killer].bestStreak = activeKillstreaks[killer].count;
   }
   
-  // Increment server-specific streak
+  // Incrementa sequência específica do servidor
   if (serverName) {
     activeKillstreaks[killer].servers[serverName].count++;
     activeKillstreaks[killer].servers[serverName].lastKill = new Date().toISOString();
     
-    // Update server-specific best streak
+    // Atualiza melhor sequência específica do servidor
     if (activeKillstreaks[killer].servers[serverName].count > 
         activeKillstreaks[killer].servers[serverName].bestStreak) {
       activeKillstreaks[killer].servers[serverName].bestStreak = 
@@ -1032,21 +1113,21 @@ function updateKillstreak(killer, victim, serverName, config) {
     }
   }
   
-  // Save killstreaks immediately to ensure persistence across restarts
+  // Salva killstreaks imediatamente para garantir persistência entre reinicializações
   saveKillstreaks(activeKillstreaks);
   
-  // Check for killstreak milestone
+  // Verifica marco de killstreak
   return checkKillstreakMilestone(killer, serverName);
 }
 
 function checkKillstreakMilestone(player, serverName) {
   const streak = activeKillstreaks[player].count;
   
-  // Find the highest milestone reached
+  // Encontra o maior marco atingido
   for (let i = KILLSTREAK_MILESTONES.length - 1; i >= 0; i--) {
     const milestone = KILLSTREAK_MILESTONES[i];
     
-    // If the streak exactly matches a milestone, announce it
+    // Se a sequência corresponde exatamente a um marco, anuncia
     if (streak === milestone.count) {
       return {
         reached: true,
@@ -1062,9 +1143,9 @@ function checkKillstreakMilestone(player, serverName) {
 }
 
 function cleanupKillstreaks() {
-  // Killstreaks now only reset when players die - no automatic cleanup
-  console.log('ℹ️ Killstreak cleanup called - killstreaks only reset on death');
-  // Just save the current state to ensure persistence
+  // Killstreaks agora só resetam quando jogadores morrem - sem limpeza automática
+  console.log('ℹ️ Limpeza de sequência de abates chamada - sequências só resetam na morte');
+  // Apenas salva o estado atual para garantir persistência
   saveKillstreaks(activeKillstreaks);
 }
 
@@ -1074,47 +1155,50 @@ function logActiveKillstreaks() {
     .sort((a, b) => b[1].count - a[1].count);
   
   if (activeStreaks.length > 0) {
-    console.log('⚡ Active killstreaks:');
+    console.log('⚡ Sequências de abates ativas:');
     activeStreaks.forEach(([player, data]) => {
-      console.log(`   ${player}: ${data.count} kills (Best: ${data.bestStreak})`);
+      console.log(`   ${player}: ${data.count} abates (Melhor: ${data.bestStreak})`);
     });
   } else {
-    console.log('ℹ️ No significant active killstreaks.');
+    console.log('ℹ️ Nenhuma sequência de abates significativa ativa.');
   }
 }
-// === LEADERBOARD GENERATION ===
-// Enhanced to use rich embeds instead of plain text
+// === GERAÇÃO DE LEADERBOARD ===
+// Aprimorado para usar embeds ricos em vez de texto simples
 
-// Format a player's K/D ratio with color coding based on performance
+// Formata a razão K/D de um jogador com codificação de cores baseada no desempenho
 function formatKDRatio(kd) {
   let kdStr = kd.toFixed(2);
   
-  // Add colored emoji based on K/D ratio
-  if (kd >= 3.0) return `🟢 ${kdStr}`; // Excellent: green circle
-  if (kd >= 2.0) return `🟦 ${kdStr}`; // Good: blue square
-  if (kd >= 1.0) return `⬜ ${kdStr}`; // Average: white square
-  return `🟥 ${kdStr}`; // Below average: red square
+  // Adiciona emoji colorido baseado na razão K/D
+  if (kd >= 3.0) return `🟢 ${kdStr}`; // Excelente: círculo verde
+  if (kd >= 2.0) return `🟦 ${kdStr}`; // Bom: quadrado azul
+  if (kd >= 1.0) return `⬜ ${kdStr}`; // Médio: quadrado branco
+  return `🟥 ${kdStr}`; // Abaixo da média: quadrado vermelho
 }
 
-// Generate a formatted progress bar based on value
+// Gera uma barra de progresso formatada baseada no valor
 function generateProgressBar(value, maxValue, length = 10) {
   const filledBlocks = Math.round((value / maxValue) * length);
   const emptyBlocks = length - filledBlocks;
   
-  // Using square emoji blocks for a nicer visual
+  // Usando blocos emoji quadrados para uma visualização mais bonita
   return '█'.repeat(filledBlocks) + '░'.repeat(emptyBlocks);
 }
 
-// Generate a rich embed for leaderboards
-// Generate a rich embed for leaderboards
+// Gera um embed rico para leaderboards
+// Gera um embed rico para leaderboards
 function generateLeaderboardEmbed(data, title, period, limit = 10, serverName = null, config) {
-  // Convert object to array of player stats
+  // Limite de campos de embed do Discord
+  const MAX_EMBED_FIELDS = 25;
+  
+  // Converte objeto para array de estatísticas de jogadores
   const players = Object.entries(data).map(([name, stats]) => ({
     name,
     ...stats
   }));
   
-  // Filter by server if specified
+  // Filtra por servidor se especificado
   let filteredPlayers = players;
   if (serverName) {
     filteredPlayers = players.filter(player => 
@@ -1124,67 +1208,79 @@ function generateLeaderboardEmbed(data, title, period, limit = 10, serverName = 
     );
   }
   
-  // Sort by kills (descending)
+  // Ordena por abates (decrescente)
   filteredPlayers.sort((a, b) => b.kills - a.kills);
   
-  // Take top N players
-  const topPlayers = filteredPlayers.slice(0, limit);
+  // Calcula quantos campos de jogadores podemos mostrar
+  // Cada jogador precisa de 1 campo, mais 1 campo em branco a cada 2 jogadores
+  // Mais precisamos de 2 campos para seção killstreaks (cabeçalho + dados)
+  const killstreakFieldsNeeded = 2;
+  const maxPlayerFields = Math.floor((MAX_EMBED_FIELDS - killstreakFieldsNeeded) * 2 / 3); // Considera campos em branco
   
-  // Generate embed
+  // Limita jogadores para garantir que não excedemos o limite de 25 campos do Discord
+  const effectiveLimit = Math.min(limit, maxPlayerFields);
+  if (effectiveLimit < limit) {
+    console.warn(`⚠️ Reduzindo tamanho do leaderboard de ${limit} para ${effectiveLimit} para ficar dentro do limite de campos do embed do Discord`);
+  }
+  
+  // Pega os N melhores jogadores
+  const topPlayers = filteredPlayers.slice(0, effectiveLimit);
+  
+  // Gera embed
   const embed = {
-    title: `${title} - ${serverName || 'All Servers'}`,
+    title: `${title} - ${serverName || 'Todos os Servidores'}`,
     color: parseInt(config.color.replace('#', ''), 16),
-    description: `Top performers for ${period}`,
+    description: `Melhores jogadores para ${period}`,
     thumbnail: { 
       url: config.iconUrl || "https://i.imgur.com/6guD1s3.png" 
     },
     fields: [],
     footer: { 
-      text: `Updated: ${formatDate(new Date())}`, 
+      text: `Atualizado: ${formatDate(new Date())}`, 
       icon_url: config.iconUrl || "https://i.imgur.com/6guD1s3.png"
     },
     timestamp: new Date().toISOString()
   };
   
   if (topPlayers.length === 0) {
-    embed.description = "No data available for this time period.";
+    embed.description = "Nenhum dado disponível para este período de tempo.";
     return embed;
   }
   
-  // Find the maximum kills for bar scaling
+  // Encontra o máximo de abates para escala da barra
   const maxKills = Math.max(...topPlayers.map(p => p.kills));
   
-  // Add fields for each top player
+  // Adiciona campos para cada jogador no topo
   topPlayers.forEach((player, index) => {
     const progressBar = generateProgressBar(player.kills, maxKills);
-    const playerDeaths = player.deaths || 0;  // Player-caused deaths
-    const envDeaths = player.envDeaths || 0;  // Environmental deaths
+    const playerDeaths = player.deaths || 0;  // Mortes causadas por jogadores
+    const envDeaths = player.envDeaths || 0;  // Mortes ambientais
     const kdRatio = formatKDRatio(player.kd);
     
-    // Check if this is a highlighted player
+    // Verifica se este é um jogador em destaque
     const playerHighlight = getPlayerHighlight(player.name);
     
-    // Format the player name in the field name
+    // Formata o nome do jogador no campo nome
     const playerHeader = playerHighlight ? 
       `${index + 1}. ${playerHighlight.prefix}${player.name} ${playerHighlight.emoji}` : 
       `${index + 1}. ${player.name}`;
     
     embed.fields.push({
       name: playerHeader,
-      value: `Kills: **${player.kills}** ${progressBar}\nPlayer Deaths: **${playerDeaths}** | Env Deaths: **${envDeaths}**\nK/D: **${kdRatio}**`,
+      value: `Abates: **${player.kills}** ${progressBar}\nMortes por Jogadores: **${playerDeaths}** | Mortes Ambientais: **${envDeaths}**\nK/D: **${kdRatio}**`,
       inline: true
     });
     
-    // Add a blank field every 2 players for better formatting
+    // Adiciona um campo em branco a cada 2 jogadores para melhor formatação
     if (index % 2 === 1 && index < topPlayers.length - 1) {
       embed.fields.push({ name: '\u200B', value: '\u200B', inline: true });
     }
   });
   
-  // Add top 5 killstreaks section
-  embed.fields.push({ name: '\u200B', value: '**Top 5 Active Killstreaks**', inline: false });
+  // Adiciona seção dos 5 melhores killstreaks
+  embed.fields.push({ name: '\u200B', value: '**Top 5 Sequências de Abates Ativas**', inline: false });
   
-  // Get active killstreaks
+  // Obtém killstreaks ativas
   const activeStreaks = Object.entries(activeKillstreaks)
     .map(([player, data]) => ({ 
       player, 
@@ -1198,15 +1294,15 @@ function generateLeaderboardEmbed(data, title, period, limit = 10, serverName = 
   if (activeStreaks.length > 0) {
     const streaksText = activeStreaks
       .map((streak, index) => {
-        // Check if this player is highlighted
+        // Verifica se este jogador está em destaque
         const playerHighlight = getPlayerHighlight(streak.player);
         
-        // Format the player name with highlight if applicable
+        // Formata o nome do jogador com destaque se aplicável
         const playerDisplay = playerHighlight ?
           `${playerHighlight.prefix}**${streak.player}** ${playerHighlight.emoji}` :
           `**${streak.player}**`;
           
-        return `${index + 1}. ${playerDisplay}: ${streak.streak} kills (Best: ${streak.bestStreak})`;
+        return `${index + 1}. ${playerDisplay}: ${streak.streak} abates (Melhor: ${streak.bestStreak})`;
       })
       .join('\n');
 
@@ -1220,47 +1316,47 @@ function generateLeaderboardEmbed(data, title, period, limit = 10, serverName = 
   return embed;
 }
 
-// Generate rich embed for longshots leaderboard
+// Gera embed rico para leaderboard de longshots
 function generateLongshotsEmbed(longshotsArray, title, period, limit = 5, serverName = null, config) {
-  // Filter by server if specified
+  // Filtra por servidor se especificado
   let filteredLongshots = longshotsArray;
   if (serverName) {
     filteredLongshots = longshotsArray.filter(shot => !serverName || shot.serverName === serverName);
   }
   
-  // Take top N longshots
+  // Pega os N melhores longshots
   const topShots = filteredLongshots.slice(0, limit);
   
-  // Generate embed
+  // Gera embed
   const embed = {
-    title: `${title} - ${serverName || 'All Servers'}`,
-    color: parseInt("AA33AA", 16), // Purple color for longshots
-    description: `Top longshots for ${period}`,
+    title: `${title} - ${serverName || 'Todos os Servidores'}`,
+    color: parseInt("AA33AA", 16), // Cor roxa para longshots
+    description: `Melhores longshots para ${period}`,
     thumbnail: { 
       url: config.iconUrl || "https://i.imgur.com/6guD1s3.png" 
     },
     fields: [],
     footer: { 
-      text: `Updated: ${formatDate(new Date())}`, 
+      text: `Atualizado: ${formatDate(new Date())}`, 
       icon_url: config.iconUrl || "https://i.imgur.com/6guD1s3.png"
     },
     timestamp: new Date().toISOString()
   };
   
   if (topShots.length === 0) {
-    embed.description = "No longshots recorded yet for this time period.";
+    embed.description = "Nenhum longshot registrado ainda para este período de tempo.";
     return embed;
   }
   
-  // Add fields for each longshot
+  // Adiciona campos para cada longshot
   topShots.forEach((shot, index) => {
-    // Find the max distance for all shots for scaling
+    // Encontra a distância máxima para todos os tiros para escala
     const maxDistance = topShots[0].distance;
     const progressBar = generateProgressBar(shot.distance, maxDistance);
     
     embed.fields.push({
       name: `${index + 1}. ${shot.killer} → ${shot.victim}`,
-      value: `**${shot.distance}m** ${progressBar}\nWeapon: **${shot.weapon}**\nDate: ${formatDate(new Date(shot.timestamp))}`,
+      value: `**${shot.distance}m** ${progressBar}\nArma: **${shot.weapon}**\nData: ${formatDate(new Date(shot.timestamp))}`,
       inline: false
     });
   });
@@ -1268,173 +1364,173 @@ function generateLongshotsEmbed(longshotsArray, title, period, limit = 5, server
   return embed;
 }
 
-// Send leaderboards to Discord
+// Envia leaderboards para o Discord
 async function sendLeaderboards() {
   const { daily, weekly, monthly } = getTimeIdentifiers();
   
-  console.log('🏆 Generating and sending leaderboards...');
+  console.log('🏆 Gerando e enviando leaderboards...');
   
   for (const config of serverConfigs) {
     try {
-      // Daily leaderboard
+      // Leaderboard diário
       if (playerStats.daily[daily]) {
         const dailyLeaderboardEmbed = generateLeaderboardEmbed(
           playerStats.daily[daily],
-          "Daily Leaderboard",
-          "Today",
+          "Leaderboard Diário",
+          "Hoje",
           10,
           config.serverName,
           config
         );
         await sendEmbedToDiscord(config.dailyLeaderboardWebhook, dailyLeaderboardEmbed);
-        console.log(`✅ Sent daily leaderboard for ${config.serverName}`);
+        console.log(`✅ Leaderboard diário enviado para ${config.serverName}`);
         
-        // Daily longshots
+        // Longshots diários
         if (longshots.daily[daily]) {
           const dailyLongshotsEmbed = generateLongshotsEmbed(
             longshots.daily[daily],
-            "Daily Top Longshots",
-            "Today",
+            "Top Longshots Diários",
+            "Hoje",
             5,
             config.serverName,
             config
           );
           await sendEmbedToDiscord(config.longshotWebhook, dailyLongshotsEmbed);
-          console.log(`✅ Sent daily longshots for ${config.serverName}`);
+          console.log(`✅ Longshots diários enviados para ${config.serverName}`);
         }
       }
       
-      // Weekly leaderboard
+      // Leaderboard semanal
       if (playerStats.weekly[weekly]) {
         const weeklyLeaderboardEmbed = generateLeaderboardEmbed(
           playerStats.weekly[weekly],
-          "Weekly Leaderboard",
-          "This Week",
+          "Leaderboard Semanal",
+          "Esta Semana",
           10,
           config.serverName,
           config
         );
         await sendEmbedToDiscord(config.weeklyLeaderboardWebhook, weeklyLeaderboardEmbed);
-        console.log(`✅ Sent weekly leaderboard for ${config.serverName}`);
+        console.log(`✅ Leaderboard semanal enviado para ${config.serverName}`);
         
-        // Weekly longshots
+        // Longshots semanais
         if (longshots.weekly[weekly]) {
           const weeklyLongshotsEmbed = generateLongshotsEmbed(
             longshots.weekly[weekly],
-            "Weekly Top Longshots",
-            "This Week",
+            "Top Longshots Semanais",
+            "Esta Semana",
             5,
             config.serverName,
             config
           );
           await sendEmbedToDiscord(config.longshotWebhook, weeklyLongshotsEmbed);
-          console.log(`✅ Sent weekly longshots for ${config.serverName}`);
+          console.log(`✅ Longshots semanais enviados para ${config.serverName}`);
         }
       }
       
-      // Monthly leaderboard
+      // Leaderboard mensal
       if (playerStats.monthly[monthly]) {
         const monthlyLeaderboardEmbed = generateLeaderboardEmbed(
           playerStats.monthly[monthly],
-          "Monthly Leaderboard",
-          "This Month",
+          "Leaderboard Mensal",
+          "Este Mês",
           10,
           config.serverName,
           config
         );
         await sendEmbedToDiscord(config.monthlyLeaderboardWebhook, monthlyLeaderboardEmbed);
-        console.log(`✅ Sent monthly leaderboard for ${config.serverName}`);
+        console.log(`✅ Leaderboard mensal enviado para ${config.serverName}`);
         
-        // Monthly longshots
+        // Longshots mensais
         if (longshots.monthly[monthly]) {
           const monthlyLongshotsEmbed = generateLongshotsEmbed(
             longshots.monthly[monthly],
-            "Monthly Top Longshots",
-            "This Month",
+            "Top Longshots Mensais",
+            "Este Mês",
             5,
             config.serverName,
             config
           );
           await sendEmbedToDiscord(config.longshotWebhook, monthlyLongshotsEmbed);
-          console.log(`✅ Sent monthly longshots for ${config.serverName}`);
+          console.log(`✅ Longshots mensais enviados para ${config.serverName}`);
         }
       }
       
-      // All-time leaderboard
+      // Leaderboard de todos os tempos
       if (playerStats.all_time) {
         const allTimeLeaderboardEmbed = generateLeaderboardEmbed(
           playerStats.all_time,
-          "All-Time Leaderboard",
-          "All Time",
+          "Leaderboard de Todos os Tempos",
+          "Todos os Tempos",
           10,
           config.serverName,
           config
         );
         await sendEmbedToDiscord(config.allTimeLeaderboardWebhook, allTimeLeaderboardEmbed);
-        console.log(`✅ Sent all-time leaderboard for ${config.serverName}`);
+        console.log(`✅ Leaderboard de todos os tempos enviado para ${config.serverName}`);
         
-        // All-time longshots
+        // Longshots de todos os tempos
         if (longshots.all_time) {
           const allTimeLongshotsEmbed = generateLongshotsEmbed(
             longshots.all_time,
-            "All-Time Top Longshots",
-            "All Time",
+            "Top Longshots de Todos os Tempos",
+            "Todos os Tempos",
             5,
             config.serverName,
             config
           );
           await sendEmbedToDiscord(config.longshotWebhook, allTimeLongshotsEmbed);
-          console.log(`✅ Sent all-time longshots for ${config.serverName}`);
+          console.log(`✅ Longshots de todos os tempos enviados para ${config.serverName}`);
         }
       }
       
-      // Small delay between servers to avoid rate limiting
+      // Pequeno atraso entre servidores para evitar limite de taxa
       await new Promise(res => setTimeout(res, 1000));
       
     } catch (err) {
-      console.error(`❌ Error sending leaderboards for ${config.serverName}:`, err.message);
+      console.error(`❌ Erro ao enviar leaderboards para ${config.serverName}:`, err.message);
     }
   }
 }
 
-// Generate a comprehensive stats embed for all players
+// Gera um embed de estatísticas abrangente para todos os jogadores
 async function sendAllPlayerStatsEmbed(config) {
-  console.log(`🔍 Generating all player stats for ${config.serverName}...`);
+  console.log(`🔍 Gerando estatísticas de todos os jogadores para ${config.serverName}...`);
   
-  // Get all players from all-time stats that have stats for this specific server
+  // Obtém todos os jogadores das estatísticas de todos os tempos que têm estatísticas para este servidor específico
   const allPlayers = Object.keys(playerStats.all_time);
   const players = allPlayers.filter(player => {
-    const playerStat = playerStats.all_time[player]; // Changed variable name to avoid conflict
+    const playerStat = playerStats.all_time[player]; // Nome de variável alterado para evitar conflito
     return playerStat.servers && 
            playerStat.servers[config.serverName] && 
            (playerStat.servers[config.serverName].kills > 0 || 
             playerStat.servers[config.serverName].deaths > 0);
   });
   
-  // Sort players by kills (descending) for this specific server
+  // Ordena jogadores por abates (decrescente) para este servidor específico
   players.sort((a, b) => {
     const aKills = playerStats.all_time[a].servers[config.serverName].kills || 0;
     const bKills = playerStats.all_time[b].servers[config.serverName].kills || 0;
     return bKills - aKills;
   });
   
-  // Create embed base
+  // Cria base do embed
   const embed = {
-    title: `📊 Player Statistics - ${config.serverName}`,
+    title: `📊 Estatísticas de Jogadores - ${config.serverName}`,
     color: parseInt(config.color.replace('#', ''), 16),
-    description: `Stats for all ${players.length} players on ${config.serverName}`,
+    description: `Estatísticas de todos os ${players.length} jogadores em ${config.serverName}`,
     thumbnail: { 
       url: config.iconUrl || "https://i.imgur.com/6guD1s3.png" 
     },
     fields: [],
     footer: { 
-      text: `Updated: ${formatDate(new Date())}`, 
+      text: `Atualizado: ${formatDate(new Date())}`, 
       icon_url: config.iconUrl || "https://i.imgur.com/6guD1s3.png"
     },
     timestamp: new Date().toISOString()
   };
   
-  // Find longest kill for each player (only for this server)
+  // Encontra o maior abate para cada jogador (apenas para este servidor)
   const playerLongestKills = {};
   longshots.all_time.forEach(shot => {
     if (shot.serverName === config.serverName) {
@@ -1444,7 +1540,7 @@ async function sendAllPlayerStatsEmbed(config) {
     }
   });
   
-  // Find highest killstreak for each player (only for this server)
+  // Encontra a maior sequência de abates para cada jogador (apenas para este servidor)
   const playerHighestStreaks = {};
   for (const player in activeKillstreaks) {
     if (activeKillstreaks[player].servers && 
@@ -1453,36 +1549,36 @@ async function sendAllPlayerStatsEmbed(config) {
     }
   }
   
-  // Process in batches (Discord has a limit of 25 fields per embed)
+  // Processa em lotes (Discord tem limite de 25 campos por embed)
   const PLAYERS_PER_EMBED = 20;
   const embeds = [];
   
   for (let i = 0; i < players.length; i += PLAYERS_PER_EMBED) {
     const batchPlayers = players.slice(i, i + PLAYERS_PER_EMBED);
     
-    // Clone the base embed for this batch
+    // Clona o embed base para este lote
     const batchEmbed = JSON.parse(JSON.stringify(embed));
     
     if (i > 0) {
-      batchEmbed.title = `📊 Player Statistics - ${config.serverName} (Page ${Math.floor(i/PLAYERS_PER_EMBED) + 1})`;
+      batchEmbed.title = `📊 Estatísticas de Jogadores - ${config.serverName} (Página ${Math.floor(i/PLAYERS_PER_EMBED) + 1})`;
     }
     
-    // Add player fields to this batch
-    // In the player fields section of sendAllPlayerStatsEmbed
-// Update this part in the player stats display
+    // Adiciona campos de jogadores a este lote
+    // Na seção de campos de jogadores de sendAllPlayerStatsEmbed
+// Atualiza esta parte na exibição de estatísticas de jogadores
 batchPlayers.forEach(player => {
   const allStats = playerStats.all_time[player];
-  // Get server-specific stats
+  // Obtém estatísticas específicas do servidor
   const serverStats = allStats.servers[config.serverName];
   
   const kills = serverStats.kills || 0;
-  const playerDeaths = serverStats.deaths || 0; // Only player-caused deaths
-  const envDeaths = serverStats.envDeaths || 0; // Environmental deaths
-  const kd = playerDeaths === 0 ? kills : parseFloat((kills / playerDeaths).toFixed(2)); // K/D only uses player deaths
+  const playerDeaths = serverStats.deaths || 0; // Apenas mortes causadas por jogadores
+  const envDeaths = serverStats.envDeaths || 0; // Mortes ambientais
+  const kd = playerDeaths === 0 ? kills : parseFloat((kills / playerDeaths).toFixed(2)); // K/D usa apenas mortes de jogadores
   
   const longestKill = playerLongestKills[player] ? `${playerLongestKills[player]}m` : 'N/A';
   
-  // Get best streak instead of current streak
+  // Obtém melhor sequência em vez da sequência atual
   const highestStreak = (activeKillstreaks[player] && 
                          activeKillstreaks[player].servers && 
                          activeKillstreaks[player].servers[config.serverName]) 
@@ -1491,7 +1587,7 @@ batchPlayers.forEach(player => {
   
   batchEmbed.fields.push({
     name: player,
-    value: `Kills: **${kills}** | Player Deaths: **${playerDeaths}** | Env Deaths: **${envDeaths}**\nK/D: **${kd.toFixed(2)}** | Longest Kill: **${longestKill}** | Best Streak: **${highestStreak}**`,
+    value: `Abates: **${kills}** | Mortes por Jogadores: **${playerDeaths}** | Mortes Ambientais: **${envDeaths}**\nK/D: **${kd.toFixed(2)}** | Maior Abate: **${longestKill}** | Melhor Sequência: **${highestStreak}**`,
     inline: false
   });
 });
@@ -1499,18 +1595,18 @@ batchPlayers.forEach(player => {
     embeds.push(batchEmbed);
   }
   
-  // Send all embeds
+  // Envia todos os embeds
   for (const embedToSend of embeds) {
     await sendEmbedToDiscord(config.allPlayersStatsWebhook, embedToSend);
-    // Small delay to avoid rate limiting
+    // Pequeno atraso para evitar limite de taxa
     await new Promise(res => setTimeout(res, 1000));
   }
   
-  console.log(`✅ Sent all player stats for ${config.serverName}`);
+  console.log(`✅ Estatísticas de todos os jogadores enviadas para ${config.serverName}`);
 }
 
-// === DISCORD RATE LIMIT HANDLING ===
-// Process queued Discord messages with respect to rate limits
+// === TRATAMENTO DE LIMITE DE TAXA DO DISCORD ===
+// Processa mensagens do Discord na fila respeitando os limites de taxa
 async function processDiscordQueue() {
   if (RATE_LIMITS.queue.length === 0) {
     RATE_LIMITS.processing = false;
@@ -1519,74 +1615,74 @@ async function processDiscordQueue() {
   
   RATE_LIMITS.processing = true;
   
-  // Sort the queue by time (oldest first)
+  // Ordena a fila por tempo (mais antigo primeiro)
   RATE_LIMITS.queue.sort((a, b) => a.time - b.time);
   
   const now = Date.now();
   const nextMessage = RATE_LIMITS.queue[0];
   
-  // Check if this webhook is currently rate limited
+  // Verifica se este webhook está atualmente limitado por taxa
   if (RATE_LIMITS.webhooks[nextMessage.webhookUrl] && RATE_LIMITS.webhooks[nextMessage.webhookUrl] > now) {
-    // Calculate wait time
+    // Calcula tempo de espera
     const waitTime = RATE_LIMITS.webhooks[nextMessage.webhookUrl] - now;
-    console.log(`⏳ Waiting ${waitTime}ms for rate limit to expire for webhook`);
+    console.log(`⏳ Aguardando ${waitTime}ms para limite de taxa expirar para webhook`);
     
-    // Wait for the rate limit to expire and try again
-    setTimeout(processDiscordQueue, waitTime + 100); // Add 100ms buffer
+    // Espera o limite de taxa expirar e tenta novamente
+    setTimeout(processDiscordQueue, waitTime + 100); // Adiciona buffer de 100ms
     return;
   }
   
-  // Remove from queue
+  // Remove da fila
   RATE_LIMITS.queue.shift();
   
   try {
-    // Try to send the message
+    // Tenta enviar a mensagem
     if (nextMessage.isEmbed) {
-      // Check for image in embed when processing queue
+      // Verifica imagem no embed ao processar fila
       if (nextMessage.embed.image && nextMessage.embed.image.url) {
-        console.log(`Queue: Processing embed with image URL: ${nextMessage.embed.image.url}`);
+        console.log(`Fila: Processando embed com URL de imagem: ${nextMessage.embed.image.url}`);
       } else {
-        console.log(`Queue: Embed does NOT contain an image URL`);
+        console.log(`Fila: Embed NÃO contém URL de imagem`);
       }
       
       const response = await axios.post(nextMessage.webhookUrl, { embeds: [nextMessage.embed] });
-      console.log(`✅ Sent queued embed to Discord. Status: ${response.status}`);
+      console.log(`✅ Embed na fila enviado para o Discord. Status: ${response.status}`);
     } else {
       await axios.post(nextMessage.webhookUrl, { content: nextMessage.message });
-      console.log(`✅ Sent queued text message to Discord`);
+      console.log(`✅ Mensagem de texto na fila enviada para o Discord`);
     }
   } catch (err) {
-    console.error(`❌ Queue error:`, err.message);
+    console.error(`❌ Erro na fila:`, err.message);
     if (err.response && err.response.status === 429) {
       const retryAfter = err.response.data.retry_after || 1;
-      console.log(`⚠️ Rate limited again for webhook, retry after ${retryAfter}s`);
+      console.log(`⚠️ Limitado por taxa novamente para webhook, tentar novamente após ${retryAfter}s`);
       
-      // Update rate limit timing
+      // Atualiza tempo de limite de taxa
       RATE_LIMITS.webhooks[nextMessage.webhookUrl] = now + (retryAfter * 1000) + 100;
       
-      // Put the message back at the front of the queue
+      // Coloca a mensagem de volta no início da fila
       RATE_LIMITS.queue.unshift(nextMessage);
     } else {
-      // For other errors, log but don't retry to avoid infinite loops
-      console.error(`❌ Failed to send queued message:`, err.message);
+      // Para outros erros, registra mas não tenta novamente para evitar loops infinitos
+      console.error(`❌ Falha ao enviar mensagem na fila:`, err.message);
     }
   }
   
-  // Small delay to avoid hitting rate limits too quickly
+  // Pequeno atraso para evitar atingir limites de taxa muito rapidamente
   await new Promise(res => setTimeout(res, 500));
   
-  // Continue processing the queue
+  // Continua processando a fila
   processDiscordQueue();
 }
 
-// === DISCORD MESSAGE FUNCTION WITH RATE LIMIT HANDLING ===
+// === FUNÇÃO DE MENSAGEM DO DISCORD COM TRATAMENTO DE LIMITE DE TAXA ===
 async function sendToDiscordWithRetry(webhookUrl, message) {
-  // Check if this webhook is currently rate limited
+  // Verifica se este webhook está atualmente limitado por taxa
   const now = Date.now();
   if (RATE_LIMITS.webhooks[webhookUrl] && RATE_LIMITS.webhooks[webhookUrl] > now) {
-    // Add to queue instead of sending immediately
+    // Adiciona à fila em vez de enviar imediatamente
     RATE_LIMITS.queue.push({ webhookUrl, message, time: now, isEmbed: false });
-    // Start queue processor if not already running
+    // Inicia processador de fila se ainda não estiver rodando
     if (!RATE_LIMITS.processing) {
       processDiscordQueue();
     }
@@ -1594,57 +1690,57 @@ async function sendToDiscordWithRetry(webhookUrl, message) {
   }
 
   try {
-    // Try to send the message
+    // Tenta enviar a mensagem
     await retryAsync(() => axios.post(webhookUrl, { content: message }));
   } catch (err) {
-    // Handle rate limiting
+    // Trata limitação de taxa
     if (err.response && err.response.status === 429) {
       const retryAfter = err.response.data.retry_after || 1;
-      console.log(`⚠️ Rate limited for webhook, retry after ${retryAfter}s`);
+      console.log(`⚠️ Limitado por taxa para webhook, tentar novamente após ${retryAfter}s`);
       
-      // Mark this webhook as rate limited
-      RATE_LIMITS.webhooks[webhookUrl] = now + (retryAfter * 1000) + 100; // Add 100ms buffer
+      // Marca este webhook como limitado por taxa
+      RATE_LIMITS.webhooks[webhookUrl] = now + (retryAfter * 1000) + 100; // Adiciona buffer de 100ms
       
-      // Add message to queue
+      // Adiciona mensagem à fila
       RATE_LIMITS.queue.push({ webhookUrl, message, time: now, isEmbed: false });
       
-      // Start queue processor if not already running
+      // Inicia processador de fila se ainda não estiver rodando
       if (!RATE_LIMITS.processing) {
         processDiscordQueue();
       }
     } else {
-      // For other errors, just log them
-      console.error(`❌ Error sending to Discord:`, err.message);
+      // Para outros erros, apenas registra
+      console.error(`❌ Erro ao enviar para o Discord:`, err.message);
     }
   }
 }
 
-// Function to send rich embed to Discord with rate limiting and debugging
+// Função para enviar embed rico para o Discord com limitação de taxa e depuração
 async function sendEmbedToDiscord(webhookUrl, embed) {
-  // Add debug logs
-  console.log(`Attempting to send embed to webhook: ${webhookUrl}`);
+  // Adiciona logs de depuração
+  console.log(`Tentando enviar embed para webhook: ${webhookUrl}`);
   
-  // Check thumbnail URL
+  // Verifica URL da miniatura
   if (embed.thumbnail && embed.thumbnail.url) {
-    console.log(`✅ Embed thumbnail URL: ${embed.thumbnail.url}`);
+    console.log(`✅ URL da miniatura do embed: ${embed.thumbnail.url}`);
   } else {
-    console.error(`❌ Embed MISSING thumbnail URL`);
+    console.error(`❌ Embed está FALTANDO URL da miniatura`);
   }
   
-  // Check image URL
+  // Verifica URL da imagem
   if (embed.image && embed.image.url) {
-    console.log(`✅ Embed image URL: ${embed.image.url}`);
+    console.log(`✅ URL da imagem do embed: ${embed.image.url}`);
   } else {
-    console.log(`ℹ️ Embed does not have an image URL (this might be intentional)`);
+    console.log(`ℹ️ Embed não tem URL de imagem (isso pode ser intencional)`);
   }
   
-  // Check if this webhook is currently rate limited
+  // Verifica se este webhook está atualmente limitado por taxa
   const now = Date.now();
   if (RATE_LIMITS.webhooks[webhookUrl] && RATE_LIMITS.webhooks[webhookUrl] > now) {
-    console.log(`Rate limited, adding to queue...`);
-    // Add to queue instead of sending immediately
+    console.log(`Limitado por taxa, adicionando à fila...`);
+    // Adiciona à fila em vez de enviar imediatamente
     RATE_LIMITS.queue.push({ webhookUrl, embed, time: now, isEmbed: true });
-    // Start queue processor if not already running
+    // Inicia processador de fila se ainda não estiver rodando
     if (!RATE_LIMITS.processing) {
       processDiscordQueue();
     }
@@ -1652,70 +1748,70 @@ async function sendEmbedToDiscord(webhookUrl, embed) {
   }
 
   try {
-    // Make sure color is an integer
+    // Garante que cor seja um inteiro
     if (embed.color && typeof embed.color === 'string') {
       embed.color = parseInt(embed.color.replace('#', ''), 16);
     }
     
-    // Format the embed correctly for Discord API
+    // Formata o embed corretamente para API do Discord
     const payload = { embeds: [embed] };
-    console.log(`Sending embed payload: ${JSON.stringify(payload).substring(0, 200)}...`);
+    console.log(`Enviando payload do embed: ${JSON.stringify(payload).substring(0, 200)}...`);
     
-    // Try to send the embed
+    // Tenta enviar o embed
     const response = await axios.post(webhookUrl, payload);
-    console.log(`✅ Successfully sent embed to Discord. Status: ${response.status}`);
+    console.log(`✅ Embed enviado com sucesso para o Discord. Status: ${response.status}`);
   } catch (err) {
-    console.error(`❌ Full error sending to Discord:`, err);
+    console.error(`❌ Erro completo ao enviar para o Discord:`, err);
     
-    // Handle rate limiting
+    // Trata limitação de taxa
     if (err.response && err.response.status === 429) {
       const retryAfter = err.response.data.retry_after || 1;
-      console.log(`⚠️ Rate limited for webhook, retry after ${retryAfter}s`);
+      console.log(`⚠️ Limitado por taxa para webhook, tentar novamente após ${retryAfter}s`);
       
-      // Mark this webhook as rate limited
-      RATE_LIMITS.webhooks[webhookUrl] = now + (retryAfter * 1000) + 100; // Add 100ms buffer
+      // Marca este webhook como limitado por taxa
+      RATE_LIMITS.webhooks[webhookUrl] = now + (retryAfter * 1000) + 100; // Adiciona buffer de 100ms
       
-      // Add embed to queue
+      // Adiciona embed à fila
       RATE_LIMITS.queue.push({ webhookUrl, embed, time: now, isEmbed: true });
       
-      // Start queue processor if not already running
+      // Inicia processador de fila se ainda não estiver rodando
       if (!RATE_LIMITS.processing) {
         processDiscordQueue();
       }
     } else {
-      // For other errors, just log them
-      console.error(`❌ Error sending embed to Discord:`, err.message);
+      // Para outros erros, apenas registra
+      console.error(`❌ Erro ao enviar embed para o Discord:`, err.message);
       
-      // Add more detailed error information if available
+      // Adiciona informações de erro mais detalhadas se disponíveis
       if (err.response) {
-        console.error(`Status code: ${err.response.status}`);
-        console.error(`Response data: ${JSON.stringify(err.response.data || {}).substring(0, 200)}`);
+        console.error(`Código de status: ${err.response.status}`);
+        console.error(`Dados da resposta: ${JSON.stringify(err.response.data || {}).substring(0, 200)}`);
       }
     }
   }
 }
-// Function to properly check highlighted players' image URLs
+// Função para verificar corretamente as URLs de imagem dos jogadores em destaque
 function validateHighlightedPlayerUrls() {
-  console.log('🔍 Validating highlighted players image URLs:');
+  console.log('🔍 Validando URLs de imagem dos jogadores em destaque:');
   let hasIssues = false;
   
   for (const player in HIGHLIGHTED_PLAYERS) {
     const highlight = HIGHLIGHTED_PLAYERS[player];
     
-    // Check for GIF URL
+    // Verifica URL do GIF
     if (!highlight.gifUrl) {
-      console.error(`❌ MISSING GIF URL for ${player}`);
+      console.error(`❌ URL DE GIF FALTANDO para ${player}`);
       hasIssues = true;
     } else {
-      console.log(`✅ ${player} GIF URL: ${highlight.gifUrl}`);
+      console.log(`✅ ${player} URL do GIF: ${highlight.gifUrl}`);
     }
     
-    // Check for thumbnail URL
+    // Verifica URL da miniatura
     if (!highlight.thumbnailUrl) {
-      console.error(`⚠️ MISSING THUMBNAIL URL for ${player}`);
+      console.error(`⚠️ URL DA MINIATURA FALTANDO para ${player}`);
       hasIssues = true;
     } else {
-      console.log(`✅ ${player} thumbnail URL: ${highlight.thumbnailUrl}`);
+      console.log(`✅ ${player} URL da miniatura: ${highlight.thumbnailUrl}`);
     }
   }
   
@@ -1723,31 +1819,31 @@ function validateHighlightedPlayerUrls() {
 }
 
 function createKillEmbed(killer, victim, weapon, distance, serverName, config) {
-  console.log(`Creating kill embed for ${killer} killing ${victim}`);
+  console.log(`Criando embed de abate para ${killer} matando ${victim}`);
   const emoji = weaponEmojis[weapon] || '🔫';
   const distanceText = distance > 0 ? `${distance}m` : 'N/A';
   
-  // Create a copy of the kill embed template
+  // Cria uma cópia do template do embed de abate
   const embed = JSON.parse(JSON.stringify(EMBED_TEMPLATES.kill));
   
-  // Get highlighted formatting for players
+  // Obtém formatação destacada para jogadores
   const killerHighlight = getPlayerHighlight(killer);
   const victimHighlight = getPlayerHighlight(victim);
   
-  console.log(`Killer highlight for ${killer}:`, killerHighlight);
-  console.log(`Victim highlight for ${victim}:`, victimHighlight);
+  console.log(`Destaque do assassino para ${killer}:`, killerHighlight);
+  console.log(`Destaque da vítima para ${victim}:`, victimHighlight);
   
-  // Format player names with highlights if applicable
+  // Formata nomes de jogadores com destaques se aplicável
   const killerDisplay = formatPlayerName(killer);
   const victimDisplay = formatPlayerName(victim);
   
-  // Replace template variables with regular names (for title)
+  // Substitui variáveis do template com nomes regulares (para título)
   embed.title = embed.title
     .replace('{emoji}', emoji)
     .replace('{killer}', killer)
     .replace('{victim}', victim);
   
-  // Get the kill phrase and apply highlighted formatting
+  // Obtém a frase de abate e aplica formatação destacada
   let phrase = getNextKillPhrase();
   phrase = phrase
     .replace('{killer}', killerDisplay)
@@ -1757,27 +1853,27 @@ function createKillEmbed(killer, victim, weapon, distance, serverName, config) {
   
   embed.description = phrase;
   
-  // Update fields
+  // Atualiza campos
   embed.fields[0].value = weapon;
   embed.fields[1].value = distanceText;
   
-  // Set server-specific info
+  // Define informações específicas do servidor
   embed.footer.text = serverName;
   embed.footer.icon_url = config.iconUrl || 'https://i.imgur.com/6guD1s3.png';
   
-  // FIXED: Image URL handling - setting image properly for highlighted players
+  // CORRIGIDO: Tratamento de URL da imagem - define imagem corretamente para jogadores em destaque
   if (killerHighlight && killerHighlight.gifUrl) {
-    console.log(`Adding GIF for killer ${killer}: ${killerHighlight.gifUrl}`);
+    console.log(`Adicionando GIF para assassino ${killer}: ${killerHighlight.gifUrl}`);
     embed.image = { url: killerHighlight.gifUrl };
   } else if (victimHighlight && victimHighlight.gifUrl) {
-    console.log(`Adding GIF for victim ${victim}: ${victimHighlight.gifUrl}`);
+    console.log(`Adicionando GIF para vítima ${victim}: ${victimHighlight.gifUrl}`);
     embed.image = { url: victimHighlight.gifUrl };
   } else {
-    // Ensure image is set to null if no GIF is available
+    // Garante que imagem seja definida como null se nenhum GIF estiver disponível
     embed.image = { url: null };
   }
   
-  // Set color - prioritize highlighted player's color if present
+  // Define cor - prioriza cor do jogador em destaque se presente
   if (killerHighlight) {
     embed.color = parseInt(killerHighlight.color.replace('#', ''), 16);
   } else if (victimHighlight) {
@@ -1786,59 +1882,59 @@ function createKillEmbed(killer, victim, weapon, distance, serverName, config) {
     embed.color = parseInt(config.color.replace('#', ''), 16);
   }
   
-  // FIXED: Thumbnail URL handling
+  // CORRIGIDO: Tratamento de URL da miniatura
   if (killerHighlight && killerHighlight.thumbnailUrl) {
-    console.log(`Setting thumbnail for killer ${killer}: ${killerHighlight.thumbnailUrl}`);
+    console.log(`Definindo miniatura para assassino ${killer}: ${killerHighlight.thumbnailUrl}`);
     embed.thumbnail.url = killerHighlight.thumbnailUrl;
   } else if (victimHighlight && victimHighlight.thumbnailUrl) {
-    console.log(`Setting thumbnail for victim ${victim}: ${victimHighlight.thumbnailUrl}`);
+    console.log(`Definindo miniatura para vítima ${victim}: ${victimHighlight.thumbnailUrl}`);
     embed.thumbnail.url = victimHighlight.thumbnailUrl;
   } else {
     embed.thumbnail.url = getWeaponIconURL(weapon);
   }
   
-  console.log(`Final embed image URL: ${embed.image.url}`);
-  console.log(`Final embed thumbnail URL: ${embed.thumbnail.url}`);
+  console.log(`URL da imagem do embed final: ${embed.image.url}`);
+  console.log(`URL da miniatura do embed final: ${embed.thumbnail.url}`);
   
   return embed;
 }
 
-// Function to create and send a highlighted player kill embed
+// Função para criar e enviar um embed de abate de jogador em destaque
 async function sendHighlightedKillEmbed(killer, victim, weapon, distance, config) {
-  // Only proceed if either killer or victim is a highlighted player
+  // Continua apenas se assassino ou vítima for um jogador em destaque
   const killerHighlight = getPlayerHighlight(killer);
   const victimHighlight = getPlayerHighlight(victim);
   
   if (!killerHighlight && !victimHighlight) {
-    return; // Neither player is highlighted, skip this function
+    return; // Nenhum jogador está em destaque, pula esta função
   }
   
-  // Determine which player's style to use (prioritize killer)
+  // Determina qual estilo de jogador usar (prioriza assassino)
   const playerHighlight = killerHighlight || victimHighlight;
   const highlightedPlayer = killerHighlight ? killer : victim;
   const isKillerHighlighted = !!killerHighlight;
   
-  console.log(`Creating highlighted embed for ${highlightedPlayer}`);
-  console.log(`Player highlight data:`, playerHighlight);
+  console.log(`Criando embed destacado para ${highlightedPlayer}`);
+  console.log(`Dados de destaque do jogador:`, playerHighlight);
   
-  // Create a specialized embed for highlighted players
+  // Cria um embed especializado para jogadores em destaque
   const embed = {
-    title: `${playerHighlight.emoji} HIGHLIGHTED PLAYER ${playerHighlight.emoji}`,
+    title: `${playerHighlight.emoji} JOGADOR EM DESTAQUE ${playerHighlight.emoji}`,
     description: isKillerHighlighted ? 
-      `${playerHighlight.prefix}**${killer}** just eliminated **${victim}** with **${weapon}**${distance > 0 ? ` from ${distance}m away` : ''}!` :
-      `${playerHighlight.prefix}**${victim}** was eliminated by **${killer}** with **${weapon}**${distance > 0 ? ` from ${distance}m away` : ''}!`,
+      `${playerHighlight.prefix}**${killer}** acabou de eliminar **${victim}** com **${weapon}**${distance > 0 ? ` a ${distance}m de distância` : ''}!` :
+      `${playerHighlight.prefix}**${victim}** foi eliminado por **${killer}** com **${weapon}**${distance > 0 ? ` a ${distance}m de distância` : ''}!`,
     color: parseInt(playerHighlight.color.replace('#', ''), 16),
-    // FIXED: Properly set the image URL
+    // CORRIGIDO: Define corretamente a URL da imagem
     image: { 
       url: playerHighlight.gifUrl 
     },
-    // FIXED: Properly set the thumbnail URL
+    // CORRIGIDO: Define corretamente a URL da miniatura
     thumbnail: {
       url: playerHighlight.thumbnailUrl || getWeaponIconURL(weapon)
     },
     fields: [
-      { name: "Weapon", value: weapon, inline: true },
-      { name: "Distance", value: distance > 0 ? `${distance}m` : 'N/A', inline: true }
+      { name: "Arma", value: weapon, inline: true },
+      { name: "Distância", value: distance > 0 ? `${distance}m` : 'N/A', inline: true }
     ],
     footer: { 
       text: `${config.serverName} | ${formatDate(new Date())}`, 
@@ -1847,34 +1943,34 @@ async function sendHighlightedKillEmbed(killer, victim, weapon, distance, config
     timestamp: new Date().toISOString()
   };
   
-  console.log(`Highlighted embed image URL: ${embed.image.url}`);
-  console.log(`Highlighted embed thumbnail URL: ${embed.thumbnail.url}`);
+  console.log(`URL da imagem do embed destacado: ${embed.image.url}`);
+  console.log(`URL da miniatura do embed destacado: ${embed.thumbnail.url}`);
   
-  // Send the specialized embed
+  // Envia o embed especializado
   await sendEmbedToDiscord(config.killWebhook, embed);
-  console.log(`✅ Sent highlighted player embed for ${highlightedPlayer}`);
+  console.log(`✅ Embed de jogador em destaque enviado para ${highlightedPlayer}`);
 }
-// Function to create and send a highlighted player killstreak embed
+// Função para criar e enviar um embed de sequência de abates de jogador em destaque
 async function sendHighlightedKillstreakEmbed(player, killstreakCount, milestone, config) {
-  // Only proceed if player is highlighted
+  // Continua apenas se jogador estiver em destaque
   const playerHighlight = getPlayerHighlight(player);
   
   if (!playerHighlight) {
-    return; // Not a highlighted player, skip this function
+    return; // Não é um jogador em destaque, pula esta função
   }
   
-  // Create a specialized killstreak embed for highlighted players
+  // Cria um embed de sequência de abates especializado para jogadores em destaque
   const embed = {
-    title: `${playerHighlight.emoji} KILLSTREAK ALERT ${playerHighlight.emoji}`,
-    description: `${playerHighlight.prefix}**${player}** ${milestone} with **${killstreakCount}** consecutive kills!`,
+    title: `${playerHighlight.emoji} ALERTA DE SEQUÊNCIA DE ABATES ${playerHighlight.emoji}`,
+    description: `${playerHighlight.prefix}**${player}** ${milestone} com **${killstreakCount}** abates consecutivos!`,
     color: parseInt(playerHighlight.color.replace('#', ''), 16),
-    // Update thumbnail to use a custom thumbnail if available
+    // Atualiza miniatura para usar uma miniatura personalizada se disponível
     thumbnail: { 
       url: playerHighlight.thumbnailUrl || playerHighlight.gifUrl 
     },
     fields: [
-      { name: "Current Streak", value: `${killstreakCount} kills`, inline: true },
-      { name: "Achievement", value: milestone, inline: true }
+      { name: "Sequência Atual", value: `${killstreakCount} abates`, inline: true },
+      { name: "Conquista", value: milestone, inline: true }
     ],
     footer: { 
       text: `${config.serverName} | ${formatDate(new Date())}`, 
@@ -1883,23 +1979,23 @@ async function sendHighlightedKillstreakEmbed(player, killstreakCount, milestone
     timestamp: new Date().toISOString()
   };
   
-  // Send the specialized embed
+  // Envia o embed especializado
   await sendEmbedToDiscord(config.killWebhook, embed);
-  console.log(`✅ Sent highlighted killstreak embed for ${player}`);
+  console.log(`✅ Embed de sequência de abates destacado enviado para ${player}`);
 }
 function createLongshotEmbed(killer, victim, weapon, distance, serverName, config) {
-  // Create a copy of the longshot embed template
+  // Cria uma cópia do template do embed de longshot
   const embed = JSON.parse(JSON.stringify(EMBED_TEMPLATES.longshot));
   
-  // Format player names with highlights
+  // Formata nomes de jogadores com destaques
   const killerDisplay = formatPlayerName(killer);
   const victimDisplay = formatPlayerName(victim);
   
-  // Get highlight info for coloring
+  // Obtém informações de destaque para coloração
   const killerHighlight = getPlayerHighlight(killer);
   const victimHighlight = getPlayerHighlight(victim);
   
-  // Set description from longshot phrase template with highlights
+  // Define descrição do template de frase de longshot com destaques
   const phrase = getNextLongshotPhrase();
   embed.description = phrase
     .replace('{killer}', killerDisplay)
@@ -1907,29 +2003,29 @@ function createLongshotEmbed(killer, victim, weapon, distance, serverName, confi
     .replace('{weapon}', weapon)
     .replace('{distance}', distance);
   
-  // Update fields
+  // Atualiza campos
   embed.fields[0].value = `**${distance}m**`;
   embed.fields[1].value = weapon;
   
-  // Add GIF for highlighted players
+  // Adiciona GIF para jogadores em destaque
   if (killerHighlight && killerHighlight.gifUrl) {
     embed.image = { url: killerHighlight.gifUrl };
   } else if (victimHighlight && victimHighlight.gifUrl) {
     embed.image = { url: victimHighlight.gifUrl };
   }
   
-  // Set server-specific info
+  // Define informações específicas do servidor
   embed.footer.text = serverName;
   embed.footer.icon_url = config.iconUrl || 'https://i.imgur.com/6guD1s3.png';
   
-  // Set color - prioritize highlighted player's color if present
+  // Define cor - prioriza cor do jogador em destaque se presente
   if (killerHighlight) {
     embed.color = parseInt(killerHighlight.color.replace('#', ''), 16);
   } else {
-    embed.color = parseInt("AA33AA", 16); // Default purple color for longshots
+    embed.color = parseInt("AA33AA", 16); // Cor roxa padrão para longshots
   }
   
-  // Set custom thumbnail for highlighted players or weapon icon
+  // Define miniatura personalizada para jogadores em destaque ou ícone de arma
   if (killerHighlight && killerHighlight.thumbnailUrl) {
     embed.thumbnail.url = killerHighlight.thumbnailUrl;
   } else if (victimHighlight && victimHighlight.thumbnailUrl) {
@@ -1944,41 +2040,41 @@ function createLongshotEmbed(killer, victim, weapon, distance, serverName, confi
 function createSuicideEmbed(victim, cause, serverName, config) {
   const emoji = "💀";
   
-  // Create a copy of the suicide embed template
+  // Cria uma cópia do template do embed de suicídio
   const embed = JSON.parse(JSON.stringify(EMBED_TEMPLATES.suicide));
   
-  // Format victim name with highlight if applicable
+  // Formata nome da vítima com destaque se aplicável
   const victimDisplay = formatPlayerName(victim);
   
-  // Get highlight info for coloring
+  // Obtém informações de destaque para coloração
   const victimHighlight = getPlayerHighlight(victim);
   
-  // Replace template variables for title (using regular name)
+  // Substitui variáveis do template para título (usando nome regular)
   embed.title = embed.title
     .replace('{emoji}', emoji)
     .replace('{victim}', victim);
   
-  // Set description from suicide phrase template with highlight
+  // Define descrição do template de frase de suicídio com destaque
   const phrase = getNextSuicidePhrase();
   embed.description = `${phrase.replace('{victim}', victimDisplay)} (${cause.replace(/_/g, ' ')})`;
   
-  // Add GIF for highlighted players
+  // Adiciona GIF para jogadores em destaque
   if (victimHighlight && victimHighlight.gifUrl) {
     embed.image = { url: victimHighlight.gifUrl };
   }
   
-  // Set server-specific info
+  // Define informações específicas do servidor
   embed.footer.text = serverName;
   embed.footer.icon_url = config.iconUrl || 'https://i.imgur.com/6guD1s3.png';
   
-  // Set color - use highlighted player's color if present
+  // Define cor - usa cor do jogador em destaque se presente
   if (victimHighlight) {
     embed.color = parseInt(victimHighlight.color.replace('#', ''), 16);
   } else {
-    embed.color = parseInt("DD3333", 16); // Default red color for suicides
+    embed.color = parseInt("DD3333", 16); // Cor vermelha padrão para suicídios
   }
   
-  // Set custom thumbnail if available
+  // Define miniatura personalizada se disponível
   if (victimHighlight && victimHighlight.thumbnailUrl) {
     embed.thumbnail.url = victimHighlight.thumbnailUrl;
   }
@@ -1987,16 +2083,16 @@ function createSuicideEmbed(victim, cause, serverName, config) {
 }
 
 function createKillstreakEmbed(killstreakResult, serverName, config) {
-  // Create a copy of the killstreak embed template
+  // Cria uma cópia do template do embed de sequência de abates
   const embed = JSON.parse(JSON.stringify(EMBED_TEMPLATES.killstreak));
   
-  // Format player name with highlight if applicable
+  // Formata nome do jogador com destaque se aplicável
   const playerDisplay = formatPlayerName(killstreakResult.player);
   
-  // Get highlight info for coloring
+  // Obtém informações de destaque para coloração
   const playerHighlight = getPlayerHighlight(killstreakResult.player);
   
-  // Replace template variables with highlighted version
+  // Substitui variáveis do template com versão destacada
   embed.description = embed.description
     .replace('{player}', playerDisplay)
     .replace('{milestone}', killstreakResult.message)
@@ -2026,24 +2122,24 @@ function createKillstreakEmbed(killstreakResult, serverName, config) {
   return embed;
 }
 
-// === CLEANUP OLD DATA ===
+// === LIMPEZA DE DADOS ANTIGOS ===
 function cleanupOldData() {
   const { daily, weekly, monthly } = getTimeIdentifiers();
   const now = new Date();
   
-  // Clean up daily data older than 30 days
+  // Limpa dados diários com mais de 30 dias
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(now.getDate() - 30);
   const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
   
-  // Clean up monthly data older than 12 months
+  // Limpa dados mensais com mais de 12 meses
   const twelveMonthsAgo = new Date();
   twelveMonthsAgo.setMonth(now.getMonth() - 12);
   const twelveMonthsAgoStr = twelveMonthsAgo.toISOString().substring(0, 7);
   
-  console.log(`🧹 Cleaning up old data older than ${thirtyDaysAgoStr} (daily) and ${twelveMonthsAgoStr} (monthly)`);
+  console.log(`🧹 Limpando dados antigos anteriores a ${thirtyDaysAgoStr} (diário) e ${twelveMonthsAgoStr} (mensal)`);
   
-  // Clean daily data
+  // Limpa dados diários
   Object.keys(playerStats.daily).forEach(date => {
     if (date < thirtyDaysAgoStr) {
       delete playerStats.daily[date];
@@ -2056,7 +2152,7 @@ function cleanupOldData() {
     }
   });
   
-  // Clean monthly data
+  // Limpa dados mensais
   Object.keys(playerStats.monthly).forEach(month => {
     if (month < twelveMonthsAgoStr) {
       delete playerStats.monthly[month];
@@ -2069,7 +2165,7 @@ function cleanupOldData() {
     }
   });
   
-  // Clean weekly data - just keep last 12 weeks for simplicity
+  // Limpa dados semanais - apenas mantém últimas 12 semanas por simplicidade
   const weekKeys = Object.keys(playerStats.weekly).sort((a, b) => b.localeCompare(a));
   if (weekKeys.length > 12) {
     const keysToKeep = weekKeys.slice(0, 12);
@@ -2086,74 +2182,74 @@ function cleanupOldData() {
     );
   }
   
-  console.log('✅ Cleanup completed');
+  console.log('✅ Limpeza concluída');
   
-  // Save changes
+  // Salva alterações
   savePlayerStats(playerStats);
   saveLongshots(longshots);
 }
 
-// === DATA MIGRATION ===
+// === MIGRAÇÃO DE DADOS ===
 function migrateOldLeaderboardData() {
-  // This function migrates data from the old format to the new format if needed
+  // Esta função migra dados do formato antigo para o novo formato se necessário
   if (Object.keys(leaderboards).length > 0 && Object.keys(playerStats.all_time).length === 0) {
-    console.log('📊 Migrating old leaderboard data to new format...');
+    console.log('📊 Migrando dados antigos de leaderboard para o novo formato...');
     
-    // Migrate each player's kill count to the new all_time stats
+    // Migra a contagem de abates de cada jogador para as estatísticas de todos os tempos novas
     Object.entries(leaderboards).forEach(([player, kills]) => {
       if (!playerStats.all_time[player]) {
         playerStats.all_time[player] = {
           kills: kills,
-          deaths: 0,  // We don't have death data from the old format
-          kd: kills,  // KD is just kills when deaths is 0
+          deaths: 0,  // Não temos dados de mortes do formato antigo
+          kd: kills,  // K/D é apenas abates quando mortes é 0
           servers: {}
         };
       }
     });
     
-    console.log(`✅ Migrated ${Object.keys(leaderboards).length} players from old format`);
+    console.log(`✅ Migrados ${Object.keys(leaderboards).length} jogadores do formato antigo`);
     savePlayerStats(playerStats);
   }
 }
 
 loadHighlightedPlayers();
 
-// === PERIODIC DATA SAVING ===
-// Save all data every 5 minutes regardless of new logs
-const DATA_SAVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+// === SALVAMENTO PERIÓDICO DE DADOS ===
+// Salva todos os dados a cada 5 minutos independentemente de novos logs
+const DATA_SAVE_INTERVAL = 5 * 60 * 1000; // 5 minutos
 function saveAllData() {
   try {
-    // Save all data files
+    // Salva todos os arquivos de dados
     saveSeenLines(seenLines);
     savePlayerStats(playerStats);
     saveLongshots(longshots);
     saveKillstreaks(activeKillstreaks);
-    saveLeaderboards(leaderboards); // Legacy - keeping for backward compatibility
+    saveLeaderboards(leaderboards); // Legado - mantendo para compatibilidade retroativa
     saveMessageIndexes(messageIndexes);
     saveHighlightedPlayers();
-    console.log('✅ Periodic data save completed');
+    console.log('✅ Salvamento periódico de dados concluído');
   } catch (err) {
-    console.error('❌ Error during periodic data save:', err.message);
+    console.error('❌ Erro durante salvamento periódico de dados:', err.message);
   }
 }
 
-// Add graceful shutdown to save data when script is terminated
+// Adiciona desligamento gracioso para salvar dados quando script é terminado
 process.on('SIGINT', async () => {
-  console.log('📥 Script terminating, saving all data...');
-  saveKillstreaks(activeKillstreaks); // Ensure killstreaks are saved first
+  console.log('📥 Script terminando, salvando todos os dados...');
+  saveKillstreaks(activeKillstreaks); // Garante que killstreaks sejam salvas primeiro
   saveAllData();
-  console.log('👋 Goodbye!');
+  console.log('👋 Até mais!');
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('📥 Script terminating, saving all data...');
-  saveKillstreaks(activeKillstreaks); // Ensure killstreaks are saved first
+  console.log('📥 Script terminando, salvando todos os dados...');
+  saveKillstreaks(activeKillstreaks); // Garante que killstreaks sejam salvas primeiro
   saveAllData();
-  console.log('👋 Goodbye!');
+  console.log('👋 Até mais!');
   process.exit(0);
 });
-// === HELPERS ===
+// === AUXILIARES ===
 async function getAllLogFiles(sftp, config) {
   const fileList = await sftp.list(config.remoteDir);
   const startFileName = '2025.05.19-00.00.00.csv';
@@ -2185,19 +2281,27 @@ async function parseCSV(content) {
   });
 }
 
-// === MAIN FUNCTION ===
+// === FUNÇÃO PRINCIPAL ===
 async function fetchAndProcessLogsFromServers() {
   for (const config of serverConfigs) {
     const sftp = new SftpClient();
 
     try {
-      console.log(`🔌 Connecting to ${config.host}...`);
-      await retryAsync(() => sftp.connect(config), 3, 5000); // More retries, longer delay
-      console.log(`✅ Connected to ${config.host}`);
+      console.log(`🔌 Conectando a ${config.host}...`);
+      // Mescla opções de conexão SFTP com config do servidor
+      const connectionConfig = {
+        host: config.host,
+        port: config.port,
+        username: config.username,
+        password: config.password,
+        ...(config.connectOptions || {})
+      };
+      await retryAsync(() => sftp.connect(connectionConfig), 3, 5000); // Mais tentativas, atraso maior
+      console.log(`✅ Conectado a ${config.host}`);
       
-      console.log(`📋 Listing files in ${config.remoteDir}`);
+      console.log(`📋 Listando arquivos em ${config.remoteDir}`);
       const csvFiles = await getAllLogFiles(sftp, config);
-      console.log(`📊 Found ${csvFiles.length} log files`);
+      console.log(`📊 Encontrados ${csvFiles.length} arquivos de log`);
 
       let totalProcessed = 0;
 
@@ -2206,41 +2310,48 @@ async function fetchAndProcessLogsFromServers() {
         let content;
 
         try {
-          console.log(`📥 Downloading file ${file.name}...`);
+          console.log(`📥 Baixando arquivo ${file.name}...`);
           const fileBuffer = await retryAsync(() => sftp.get(filePath), 3, 3000);
           content = fileBuffer.toString();
-          console.log(`✅ File fetched: ${file.name}`);
+          console.log(`✅ Arquivo obtido: ${file.name}`);
         } catch (err) {
-          console.error(`❌ Error reading file ${file.name}:`, err.message);
-          // Try to reconnect before continuing to next file
+          console.error(`❌ Erro ao ler arquivo ${file.name}:`, err.message);
+          // Tenta reconectar antes de continuar para próximo arquivo
           try {
             await sftp.end();
-            await retryAsync(() => sftp.connect(config), 2, 3000);
+            const connectionConfig = {
+              host: config.host,
+              port: config.port,
+              username: config.username,
+              password: config.password,
+              ...(config.connectOptions || {})
+            };
+            await retryAsync(() => sftp.connect(connectionConfig), 2, 3000);
           } catch (reconnectErr) {
-            console.error(`❌ Failed to reconnect:`, reconnectErr.message);
+            console.error(`❌ Falha ao reconectar:`, reconnectErr.message);
           }
           continue;
         }
 
         const records = await parseCSV(content);
-        console.log('✅ Parsed rows:', records.length);
+        console.log('✅ Linhas analisadas:', records.length);
         let processed = 0;
 
         for (const row of records) {
-          // Basic validation
+          // Validação básica
           if (!Array.isArray(row) || row.length < 7) {
-            console.log('❌ Invalid row, skipping:', row);
+            console.log('❌ Linha inválida, pulando:', row);
             continue;
           }
 
-          // Check for blank segments
+          // Verifica segmentos em branco
           if (hasBlankSegments(row)) {
             continue;
           }
 
           const lineId = row.join(';');
           if (seenLines.has(lineId)) {
-            console.log('⚠️ Already seen, skipping');
+            console.log('⚠️ Já vista, pulando');
             continue;
           }
 
@@ -2254,62 +2365,112 @@ async function fetchAndProcessLogsFromServers() {
           const distance = row[6];
           const distanceNum = parseInt(distance);
 
-          // Update player stats with this kill/death
-          updatePlayerStats(killer, victim, distance, cause, timestamp, config.serverName);
+          // Valida nomes de jogadores
+          if (!killer || typeof killer !== 'string' || killer.trim().length === 0) {
+            console.warn(`⚠️ Nome de assassino inválido na linha: ${JSON.stringify(row)}`);
+            continue;
+          }
+          if (!victim || typeof victim !== 'string' || victim.trim().length === 0) {
+            console.warn(`⚠️ Nome de vítima inválido na linha: ${JSON.stringify(row)}`);
+            continue;
+          }
+          
+          // Sanitiza nomes de jogadores (remove espaços em branco, limita tamanho)
+          const MAX_PLAYER_NAME_LENGTH = 100; // Limite de nome de usuário do Discord
+          const sanitizedKiller = killer.trim().substring(0, MAX_PLAYER_NAME_LENGTH);
+          const sanitizedVictim = victim.trim().substring(0, MAX_PLAYER_NAME_LENGTH);
+          
+          // Valida causa/arma
+          if (!cause || typeof cause !== 'string') {
+            console.warn(`⚠️ Causa inválida na linha: ${JSON.stringify(row)}`);
+            continue;
+          }
 
-          const isSuicide = killer === victim;
+          // Atualiza estatísticas de jogadores com este abate/morte (usa nomes sanitizados)
+          updatePlayerStats(sanitizedKiller, sanitizedVictim, distance, cause, timestamp, config.serverName);
+
+          const isSuicide = sanitizedKiller === sanitizedVictim;
           const causeLower = cause.toLowerCase();
 
           if (isSuicide || causeLower.includes('suicide') || causeLower.includes('falling') || causeLower.includes('relocation')) {
-            // Create and send suicide embed
-            const suicideEmbed = createSuicideEmbed(victim, cause, config.serverName, config);
+            // Cria e envia embed de suicídio
+            const suicideEmbed = createSuicideEmbed(sanitizedVictim, cause, config.serverName, config);
             await sendEmbedToDiscord(config.suicideWebhook, suicideEmbed);
             
-            // Reset killstreak when player dies to environment
-            if (activeKillstreaks[victim]) {
-              activeKillstreaks[victim].count = 0;
-              if (config.serverName && activeKillstreaks[victim].servers[config.serverName]) {
-                activeKillstreaks[victim].servers[config.serverName].count = 0;
+            // Reseta killstreak quando jogador morre para ambiente
+            if (activeKillstreaks[sanitizedVictim]) {
+              const victimStreak = activeKillstreaks[sanitizedVictim].count;
+              
+              // Se vítima tinha uma killstreak significativa antes de morrer (3 ou mais), anuncia que terminou
+              if (victimStreak >= 3) {
+                const victimHighlight = getPlayerHighlight(sanitizedVictim);
+                
+                const endStreakEmbed = {
+                  title: "⚡ Sequência de Abates Terminada!",
+                  color: parseInt("DD3333", 16), // Cor vermelha para sequências terminadas
+                  description: `A sequência de **${sanitizedVictim}** de **${victimStreak}** abates terminou por **${cause}**!`,
+                  thumbnail: { 
+                    url: victimHighlight && victimHighlight.thumbnailUrl ? 
+                      victimHighlight.thumbnailUrl : 
+                      "https://i.imgur.com/6guD1s3.png" 
+                  },
+                  footer: { 
+                    text: config.serverName || "Deadside", 
+                    icon_url: config.iconUrl || "https://i.imgur.com/6guD1s3.png" 
+                  },
+                  timestamp: new Date().toISOString()
+                };
+                
+                await sendEmbedToDiscord(config.killWebhook, endStreakEmbed);
               }
+              
+              // Reseta a sequência
+              activeKillstreaks[sanitizedVictim].count = 0;
+              if (config.serverName && activeKillstreaks[sanitizedVictim].servers[config.serverName]) {
+                activeKillstreaks[sanitizedVictim].servers[config.serverName].count = 0;
+              }
+              
+              // Salva killstreaks atualizadas
+              saveKillstreaks(activeKillstreaks);
             }
           } else {
-            // Update killstreak for this kill
-            const killstreakResult = updateKillstreak(killer, victim, config.serverName, config);
+            // Atualiza killstreak para este abate (usa nomes sanitizados)
+            const killstreakResult = updateKillstreak(sanitizedKiller, sanitizedVictim, config.serverName, config);
             
-            // Check for longshot (over 200m)
+            // Verifica longshot (acima de 200m)
             if (distanceNum >= 200) {
-              // Create and send longshot embed
-              const longshotEmbed = createLongshotEmbed(killer, victim, cause, distanceNum, config.serverName, config);
+              // Cria e envia embed de longshot
+              const longshotEmbed = createLongshotEmbed(sanitizedKiller, sanitizedVictim, cause, distanceNum, config.serverName, config);
               await sendEmbedToDiscord(config.killWebhook, longshotEmbed);
             } else {
-              // Create and send normal kill embed
-              const killEmbed = createKillEmbed(killer, victim, cause, distanceNum, config.serverName, config);
+              // Cria e envia embed de abate normal
+              const killEmbed = createKillEmbed(sanitizedKiller, sanitizedVictim, cause, distanceNum, config.serverName, config);
               await sendEmbedToDiscord(config.killWebhook, killEmbed);
             }
             
-            // If a milestone was reached, send killstreak announcement
+            // Se um marco foi atingido, envia anúncio de killstreak
             if (killstreakResult.reached) {
               const killstreakEmbed = createKillstreakEmbed(killstreakResult, config.serverName, config);
               await sendEmbedToDiscord(config.killWebhook, killstreakEmbed);
               
-              // Save updated killstreaks
+              // Salva killstreaks atualizadas
               saveKillstreaks(activeKillstreaks);
             }
           }
         }
 
         if (processed > 0) {
-          console.log(`✅ Processed ${processed} new lines from ${file.name}`);
+          console.log(`✅ Processadas ${processed} novas linhas de ${file.name}`);
           totalProcessed += processed;
         }
       }
 
-      // Close the connection
+      // Fecha a conexão
       try {
         await sftp.end();
-        console.log(`🔌 Closed connection to ${config.host}`);
+        console.log(`🔌 Conexão fechada com ${config.host}`);
       } catch (closeErr) {
-        console.error(`⚠️ Error closing connection:`, closeErr.message);
+        console.error(`⚠️ Erro ao fechar conexão:`, closeErr.message);
       }
 
       if (totalProcessed > 0) {
@@ -2318,76 +2479,76 @@ async function fetchAndProcessLogsFromServers() {
         saveLongshots(longshots);
         saveKillstreaks(activeKillstreaks);
         saveMessageIndexes(messageIndexes);
-        // Legacy - to be removed eventually
+        // Legado - será removido eventualmente
         saveLeaderboards(leaderboards);
       } else {
-        console.log(`⚠️ No new lines from ${config.host}`);
+        console.log(`⚠️ Nenhuma linha nova de ${config.host}`);
       }
     } catch (err) {
-      console.error(`❌ Error processing ${config.host}:`, err.message);
+      console.error(`❌ Erro ao processar ${config.host}:`, err.message);
       try { 
         await sftp.end();
-        console.log(`🔌 Attempted to close connection to ${config.host}`);
+        console.log(`🔌 Tentativa de fechar conexão com ${config.host}`);
       } catch (closeErr) {
-        // Just log and continue
-        console.error(`⚠️ Error closing connection:`, closeErr.message);
+        // Apenas registra e continua
+        console.error(`⚠️ Erro ao fechar conexão:`, closeErr.message);
       }
     }
   }
 }
 
-// Test your webhook URLs with a simple message
+// Testa suas URLs de webhook com uma mensagem simples
 async function testWebhooks() {
-  console.log('🔍 Testing Discord webhook connections...');
+  console.log('🔍 Testando conexões de webhook do Discord...');
   for (const config of serverConfigs) {
     try {
       const testMessage = {
-        content: "Testing webhook connection..."
+        content: "Testando conexão de webhook..."
       };
       await axios.post(config.killWebhook, testMessage);
-      console.log(`✅ Successfully tested webhook for ${config.serverName}`);
+      console.log(`✅ Webhook testado com sucesso para ${config.serverName}`);
     } catch (err) {
-      console.error(`❌ Error testing webhook for ${config.serverName}:`, err.message);
-      console.error(`   Webhook URL: ${config.killWebhook}`);
+      console.error(`❌ Erro ao testar webhook para ${config.serverName}:`, err.message);
+      console.error(`   URL do Webhook: ${config.killWebhook}`);
       if (err.response) {
         console.error(`   Status: ${err.response.status}`);
-        console.error(`   Response: ${JSON.stringify(err.response.data)}`);
+        console.error(`   Resposta: ${JSON.stringify(err.response.data)}`);
       }
     }
   }
 }
 
-// === INITIALIZATION AND SCHEDULE ===
-// Migrate old data format if needed
+// === INICIALIZAÇÃO E AGENDAMENTO ===
+// Migra formato de dados antigos se necessário
 migrateOldLeaderboardData();
 
-// Run cleanup daily to remove old data
-const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+// Executa limpeza diariamente para remover dados antigos
+const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 horas
 setInterval(cleanupOldData, CLEANUP_INTERVAL);
 
-// Send leaderboards every 4 hours
-const LEADERBOARD_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
+// Envia leaderboards a cada 4 horas
+const LEADERBOARD_INTERVAL = 4 * 60 * 60 * 1000; // 4 horas
 setInterval(sendLeaderboards, LEADERBOARD_INTERVAL);
 
-// Save all data periodically
+// Salva todos os dados periodicamente
 setInterval(saveAllData, DATA_SAVE_INTERVAL);
 
-// Run immediately on startup
+// Executa imediatamente na inicialização
 setTimeout(sendLeaderboards, 10000);
 setTimeout(testWebhooks, 5000);
 
-// Add this to your initialization section, after other timers
-// Send all-player stats every 12 hours
-const ALL_PLAYER_STATS_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
+// Adiciona isto à sua seção de inicialização, após outros timers
+// Envia estatísticas de todos os jogadores a cada 12 horas
+const ALL_PLAYER_STATS_INTERVAL = 12 * 60 * 60 * 1000; // 12 horas
 setInterval(async () => {
   for (const config of serverConfigs) {
     await sendAllPlayerStatsEmbed(config);
-    // Delay between servers
+    // Atraso entre servidores
     await new Promise(res => setTimeout(res, 2000));
   }
 }, ALL_PLAYER_STATS_INTERVAL);
 
-// Call once on startup with a bit of delay
+// Chama uma vez na inicialização com um pouco de atraso
 setTimeout(async () => {
   for (const config of serverConfigs) {
     await sendAllPlayerStatsEmbed(config);
@@ -2395,57 +2556,57 @@ setTimeout(async () => {
   }
 }, 15000);
 
-// Run the URL validation on startup - ADD THIS NEW CODE HERE
+// Executa a validação de URL na inicialização - ADICIONA ESTE NOVO CÓDIGO AQUI
 setTimeout(() => {
-  console.log('\n==== RUNNING IMAGE URL VALIDATION ====');
+  console.log('\n==== EXECUTANDO VALIDAÇÃO DE URL DE IMAGEM ====');
   const valid = validateHighlightedPlayerUrls();
   if (valid) {
-    console.log('✅ All highlighted players have valid image URLs');
+    console.log('✅ Todos os jogadores em destaque têm URLs de imagem válidas');
   } else {
-    console.error('⚠️ Some highlighted players have missing image URLs - please fix');
+    console.error('⚠️ Alguns jogadores em destaque têm URLs de imagem faltando - por favor corrija');
   }
   console.log('=======================================\n');
 }, 3000);
 
 
-// One-time reset to fix any issues with highlighted players
+// Reset único para corrigir quaisquer problemas com jogadores em destaque
 setTimeout(() => {
   resetHighlightedPlayers();
 }, 6000);
 
 
-// Start Express server for webhook endpoints
+// Inicia servidor Express para endpoints de webhook
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Parse JSON requests
+// Analisa requisições JSON
 app.use(bodyParser.json());
 
-// Add route for server health check
+// Adiciona rota para verificação de saúde do servidor
 app.get('/health', (req, res) => {
   res.status(200).send({ status: 'ok' });
 });
 
-// Start HTTP server
+// Inicia servidor HTTP
 app.listen(PORT, () => {
-  console.log(`💻 Server running on port ${PORT}`);
+  console.log(`💻 Servidor rodando na porta ${PORT}`);
   
-  // Welcome message
+  // Mensagem de boas-vindas
   console.log('');
   console.log('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓');
   console.log('┃                       DEADSIDE KILLFEED                           ┃');
-  console.log('┃              Enhanced Discord Integration v2.0                    ┃');
+  console.log('┃              Integração Aprimorada do Discord v2.0                ┃');
   console.log('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛');
   console.log('');
-  console.log('🔁 Checking logs every 30s...');
-  console.log('📊 Leaderboards will update every 4 hours');
-  console.log('⚡ Killstreaks are being tracked');
-  console.log('🎯 Longshots are being recorded (200m+)');
-  console.log('🛡️ Discord rate limit protection enabled');
-  console.log('💬 Enhanced message formatting with rich embeds');
+  console.log('🔁 Verificando logs a cada 30s...');
+  console.log('📊 Leaderboards serão atualizados a cada 4 horas');
+  console.log('⚡ Sequências de abates estão sendo rastreadas');
+  console.log('🎯 Longshots estão sendo registrados (200m+)');
+  console.log('🛡️ Proteção de limite de taxa do Discord habilitada');
+  console.log('💬 Formatação de mensagem aprimorada com embeds ricos');
   console.log('');
   
-  // Start monitoring
+  // Inicia monitoramento
   fetchAndProcessLogsFromServers();
   setInterval(fetchAndProcessLogsFromServers, 30000);
 });
