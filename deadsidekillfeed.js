@@ -337,7 +337,7 @@ function resetHighlightedPlayers() {
     fs.unlinkSync(HIGHLIGHTED_PLAYERS_FILE);
     console.log('✅ Deleted saved highlighted players file');
   } catch (err) {
-    console.log('ℹ️ No file to delete or error deleting');
+    console.log('ℹ️ Nenhum arquivo para deletar ou erro ao deletar');
   }
   
   // Run validation to show current state
