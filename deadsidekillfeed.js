@@ -99,8 +99,8 @@ const EMBED_TEMPLATES = {
     thumbnail: { url: "{weaponIcon}" },
     image: { url: null }, // CHANGED: Use an object with null URL
     fields: [
-      { name: "Weapon", value: "{weapon}", inline: true },
-      { name: "Distance", value: "{distance}m", inline: true }
+      { name: "Arma", value: "{weapon}", inline: true },
+      { name: "Distância", value: "{distance}m", inline: true }
     ],
     footer: { 
       text: "{serverName}", 
@@ -143,8 +143,8 @@ const EMBED_TEMPLATES = {
     color: "#AA33AA", // Purple color for longshots
     description: null, // Will be generated from longshot phrase
     fields: [
-      { name: "Distance", value: "**{distance}m**", inline: true },
-      { name: "Weapon", value: "{weapon}", inline: true }
+      { name: "Distância", value: "**{distance}m**", inline: true },
+      { name: "Arma", value: "{weapon}", inline: true }
     ],
     thumbnail: { url: "https://i.imgur.com/6guD1s3.png" },
     image: { url: null }, // CHANGED: Use an object with null URL
